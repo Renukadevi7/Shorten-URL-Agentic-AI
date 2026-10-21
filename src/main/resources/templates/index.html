@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Agentic — local agent playground</title>
+  <meta name="description" content="Plan, call tools, observe, and answer with a streaming local agent demo. No API key required."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Syne:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" th:href="@{/css/agentic.css}" href="/css/agentic.css"/>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1 class="brand">Agentic</h1>
+      <p class="lede">
+        Watch a local agent plan, call tools, observe results, and answer —
+        no API key required. Built with Java and Spring Boot.
+      </p>
+      <div class="actions">
+        <button id="run" class="btn btn-primary" type="button">Run agent →</button>
+        <button id="stop" class="btn btn-outline" type="button" hidden>Stop</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div>
+        <label for="goal">Goal</label>
+        <textarea id="goal" rows="5" placeholder="Ask the agent to research, calculate, or check the weather…"></textarea>
+        <div id="examples" class="examples"></div>
+        <div class="tools">
+          <div class="tool">
+            <div>
+              <strong>Knowledge</strong>
+              <code>knowledge_search</code>
+            </div>
+          </div>
+          <div class="tool">
+            <div>
+              <strong>Calculator</strong>
+              <code>calculator</code>
+            </div>
+          </div>
+          <div class="tool">
+            <div>
+              <strong>Notes</strong>
+              <code>notes</code>
+            </div>
+          </div>
+          <div class="tool">
+            <div>
+              <strong>Weather</strong>
+              <code>weather_mock</code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span>Live run</span>
+          <span id="badge" class="badge">ready</span>
+        </div>
+        <div id="steps" class="steps"></div>
+        <div id="answer" class="answer" hidden>
+          <p class="answer-label">Final answer</p>
+          <pre id="answer-body"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script th:src="@{/js/agentic.js}" src="/js/agentic.js"></script>
+</body>
+</html>

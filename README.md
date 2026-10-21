@@ -1,37 +1,42 @@
-# Agentic
+# Agentic (Java / Spring Boot)
 
-A local **agent playground** that streams plan → tool → observe → answer. No API key required — the planner is a heuristic demo with mock tools.
+Local **agent playground** that streams plan → tool → observe → answer. No API key required — the planner is a heuristic demo with mock tools.
+
+## Requirements
+
+- Java 21+
+- Maven 3.8+ (or use `./mvnw`)
 
 ## Run locally
 
 ```bash
-npm install
-npm run dev -- --port 43127
+./mvnw spring-boot:run
 ```
 
 Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
+
+Or build a jar:
+
+```bash
+./mvnw -DskipTests package
+java -jar target/agentic-0.0.1-SNAPSHOT.jar
+```
 
 ## What’s included
 
 - **Streaming agent API** at `POST /api/agent` (Server-Sent Events)
 - **Tools**: `knowledge_search`, `calculator`, `notes`, `weather_mock`
-- **UI**: live step timeline + final answer panel
+- **UI**: Thymeleaf page + live step timeline
 
 ## Project layout
 
 ```
-src/
-  app/api/agent/route.ts   # SSE agent endpoint
-  components/agent-playground.tsx
-  lib/agent/runtime.ts     # plan + tool loop
-  lib/agent/tools.ts       # mock tools
+src/main/java/com/agentic/
+  agent/                 # runtime + step/event models
+  agent/tools/           # mock tools
+  web/                   # HomeController + AgentController (SSE)
+src/main/resources/
+  templates/index.html
+  static/css/agentic.css
+  static/js/agentic.js
 ```
-
-## Scripts
-
-| Command        | Description              |
-| -------------- | ------------------------ |
-| `npm run dev`  | Start Next.js dev server |
-| `npm run build`| Production build         |
-| `npm run start`| Start production server  |
-| `npm run lint` | ESLint                   |
