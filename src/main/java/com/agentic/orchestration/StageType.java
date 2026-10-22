@@ -1,0 +1,11 @@
+package com.agentic.orchestration;
+
+public enum StageType {
+	REQUIREMENTS,
+	CLARIFICATION,
+	ARCHITECTURE,
+	IMPLEMENTATION,
+	TESTING,
+	DOCUMENTATION,
+	RELEASE_READINESS
+}

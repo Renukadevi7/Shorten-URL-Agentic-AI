@@ -9,12 +9,11 @@
 		<relativePath/>
 	</parent>
 	<groupId>com.agentic</groupId>
-	<artifactId>agentic</artifactId>
+	<artifactId>agentic-url-shortener</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>agentic</name>
-	<description>Local agent playground — plan, call tools, observe, answer</description>
+	<name>agentic-url-shortener</name>
+	<description>Agentic SDLC orchestration prototype for a URL shortener</description>
 	<properties>
-		<!-- Match IntelliJ / Cursor Project SDK 17 (fixes "source version 1.5" fallback) -->
 		<java.version>17</java.version>
 		<maven.compiler.release>17</maven.compiler.release>
 		<maven.compiler.source>17</maven.compiler.source>

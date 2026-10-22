@@ -1,75 +1,61 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Agentic — local agent playground</title>
-  <meta name="description" content="Plan, call tools, observe, and answer with a streaming local agent demo. No API key required."/>
+  <title>Agentic URL Shortener — SDLC Orchestration</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Syne:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" th:href="@{/css/agentic.css}" href="/css/agentic.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/css/app.css"/>
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <h1 class="brand">Agentic</h1>
-      <p class="lede">
-        Watch a local agent plan, call tools, observe results, and answer —
-        no API key required. Built with Java and Spring Boot.
-      </p>
-      <div class="actions">
-        <button id="run" class="btn btn-primary" type="button">Run agent →</button>
-        <button id="stop" class="btn btn-outline" type="button" hidden>Stop</button>
-      </div>
-    </header>
+  <main class="wrap">
+    <h1 class="brand">Agentic URL Shortener</h1>
+    <p class="lede">
+      Assignment prototype: an agentic orchestration control plane that turns a requirement into a
+      reviewable engineering outcome for a URL shortener — with DAG stages, approval gates,
+      retries/rollback, policy guardrails, and audit lineage.
+    </p>
 
-    <section class="layout">
-      <div>
-        <label for="goal">Goal</label>
-        <textarea id="goal" rows="5" placeholder="Ask the agent to research, calculate, or check the weather…"></textarea>
-        <div id="examples" class="examples"></div>
-        <div class="tools">
-          <div class="tool">
-            <div>
-              <strong>Knowledge</strong>
-              <code>knowledge_search</code>
-            </div>
-          </div>
-          <div class="tool">
-            <div>
-              <strong>Calculator</strong>
-              <code>calculator</code>
-            </div>
-          </div>
-          <div class="tool">
-            <div>
-              <strong>Notes</strong>
-              <code>notes</code>
-            </div>
-          </div>
-          <div class="tool">
-            <div>
-              <strong>Weather</strong>
-              <code>weather_mock</code>
-            </div>
-          </div>
+    <section class="grid">
+      <div class="card">
+        <h2>Start a scenario</h2>
+        <div class="chips">
+          <button type="button" class="chip active" data-scenario="greenfield">Greenfield</button>
+          <button type="button" class="chip" data-scenario="brownfield">Brownfield</button>
+          <button type="button" class="chip" data-scenario="ambiguous">Ambiguous</button>
         </div>
+        <label for="scenario">Scenario</label>
+        <select id="scenario">
+          <option value="greenfield">greenfield</option>
+          <option value="brownfield">brownfield</option>
+          <option value="ambiguous">ambiguous</option>
+        </select>
+        <label for="requirement" style="margin-top:0.75rem">Requirement</label>
+        <textarea id="requirement"></textarea>
+        <div class="row">
+          <button id="start" type="button">Start orchestration</button>
+        </div>
+        <p class="small" style="margin-top:0.75rem">
+          Product APIs also available: <code>POST /api/urls</code>, <code>GET /{code}</code>,
+          <code>GET /api/urls/{code}/stats</code>.
+        </p>
+        <h2 style="margin-top:1rem">Reliability metrics</h2>
+        <div id="metrics" class="metrics"></div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <span>Live run</span>
-          <span id="badge" class="badge">ready</span>
+      <div class="card">
+        <div class="stage-head">
+          <h2 style="margin:0">Live run</h2>
+          <span id="status" class="badge">idle</span>
         </div>
-        <div id="steps" class="steps"></div>
-        <div id="answer" class="answer" hidden>
-          <p class="answer-label">Final answer</p>
-          <pre id="answer-body"></pre>
+        <div id="run-view" class="small" style="margin-top:0.75rem">
+          Start a scenario to stream stage execution. High-impact stages pause for human approval.
         </div>
       </div>
     </section>
   </main>
-  <script th:src="@{/js/agentic.js}" src="/js/agentic.js"></script>
+  <script src="/js/app.js"></script>
 </body>
 </html>
