@@ -4,8 +4,10 @@ Local **agent playground** that streams plan → tool → observe → answer. No
 
 ## Requirements
 
-- Java 21+
+- Java 17+ (project language level is **17**)
 - Maven 3.8+ (or use `./mvnw`)
+
+If your IDE says `source version 1.5` / `release version 5 not supported`, set **Project SDK** to 17 and reload Maven (`pom.xml` → Reload).
 
 ## Run locally
 
