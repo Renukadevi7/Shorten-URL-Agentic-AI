@@ -7,9 +7,8 @@ public record ShortUrl(
 		String longUrl,
 		Instant createdAt,
 		long clicks,
-		Instant lastClickedAt
+		Instant lastClickedAt,
+		Instant expiresAt,
+		boolean deleted
 ) {
-	public ShortUrl withClick() {
-		return new ShortUrl(code, longUrl, createdAt, clicks + 1, Instant.now());
-	}
 }

@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class OrchestrationRun {
@@ -21,7 +22,7 @@ public class OrchestrationRun {
 	private final Map<String, StageNode> stages = new LinkedHashMap<>();
 	private final List<String> stageOrder = new ArrayList<>();
 	private final List<AuditEvent> lineage = new CopyOnWriteArrayList<>();
-	private final Map<String, Object> context = new LinkedHashMap<>();
+	private final Map<String, Object> context = new ConcurrentHashMap<>();
 	private int retries;
 	private int rollbacks;
 	private String failureMessage;

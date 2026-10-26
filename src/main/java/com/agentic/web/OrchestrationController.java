@@ -82,6 +82,29 @@ public class OrchestrationController {
 		return orchestratorService.safeStop(id, reason).toView();
 	}
 
+	@PostMapping("/runs/{id}/fault")
+	public Map<String, Object> fault(@PathVariable String id, @RequestBody FaultRequest body) {
+		try {
+			String type = body == null || body.type() == null ? "FAIL_TESTING" : body.type();
+			boolean once = body == null || body.once() == null || body.once();
+			return orchestratorService.injectFault(id, type, once).toView();
+		}
+		catch (RuntimeException ex) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+		}
+	}
+
+	@PostMapping("/runs/{id}/mutate-upstream")
+	public Map<String, Object> mutateUpstream(@PathVariable String id, @RequestBody MutateRequest body) {
+		try {
+			String requirement = body == null || body.requirement() == null ? "" : body.requirement();
+			return orchestratorService.mutateUpstream(id, requirement).toView();
+		}
+		catch (RuntimeException ex) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+		}
+	}
+
 	@GetMapping("/metrics")
 	public Map<String, Object> metrics() {
 		Map<String, Object> out = new LinkedHashMap<>();
@@ -96,5 +119,11 @@ public class OrchestrationController {
 	}
 
 	public record ReasonRequest(String reason) {
+	}
+
+	public record FaultRequest(String type, Boolean once) {
+	}
+
+	public record MutateRequest(String requirement) {
 	}
 }

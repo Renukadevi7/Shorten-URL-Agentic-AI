@@ -1,3 +1,4 @@
+const API_KEY = "demo-api-key-change-me";
 const scenarioEl = document.getElementById("scenario");
 const requirementEl = document.getElementById("requirement");
 const runView = document.getElementById("run-view");
@@ -5,12 +6,18 @@ const metricsView = document.getElementById("metrics");
 const statusEl = document.getElementById("status");
 
 const PRESETS = {
-  greenfield: "Build a URL shortener with create and redirect APIs.",
-  brownfield: "Add click analytics and basic reliability to the existing shortener.",
+  greenfield: "Build a URL shortener with create and redirect APIs over HTTPS.",
+  brownfield: "Add click analytics, delete/expiry/alias and reliability to the existing shortener.",
   ambiguous: "Make links better for the leadership demo next week.",
 };
 
 let currentRunId = null;
+
+function headers(json = true) {
+  const h = { "X-API-Key": API_KEY };
+  if (json) h["Content-Type"] = "application/json";
+  return h;
+}
 
 document.querySelectorAll(".chip").forEach((chip) => {
   chip.addEventListener("click", () => {
@@ -34,6 +41,7 @@ async function refreshMetrics() {
     ["Retries", m.retryCount ?? 0],
     ["Rollbacks", m.rollbackCount ?? 0],
     ["Avg latency ms", m.avgEndToEndLatencyMs ?? 0],
+    ["Avg MTTR ms", m.avgMttrMs ?? 0],
   ]
     .map(([k, v]) => `<div class="metric"><b>${v}</b><span>${k}</span></div>`)
     .join("");
@@ -50,26 +58,30 @@ function renderRun(run) {
           <strong>${escapeHtml(s.title)}</strong>
           <span class="badge ${s.status}">${s.status}</span>
         </div>
-        <div class="small">${escapeHtml(s.type)} · deps: ${(s.dependsOn || []).join(", ") || "none"} · approvals: ${s.requiresHumanApproval}</div>
+        <div class="small">${escapeHtml(s.type)} · deps: ${(s.dependsOn || []).join(", ") || "none"}
+          · fallback: ${s.fallbackStageId || "—"} · approval: ${s.requiresHumanApproval}</div>
         ${s.output ? `<pre>${escapeHtml(s.output)}</pre>` : ""}
       </div>`
     )
     .join("");
 
   const lineage = (run.lineage || [])
-    .slice(-12)
+    .slice(-14)
     .reverse()
     .map((e) => `<div class="small">[${escapeHtml(e.kind)}] ${escapeHtml(e.message)}</div>`)
     .join("");
 
   runView.innerHTML = `
-    <div class="small">Run <code>${escapeHtml(run.id)}</code> · scenario ${escapeHtml(run.scenario)} · retries ${run.retries} · rollbacks ${run.rollbacks}</div>
+    <div class="small">Run <code>${escapeHtml(run.id)}</code> · ${escapeHtml(run.scenario)}
+      · retries ${run.retries} · rollbacks ${run.rollbacks} · latency ${run.latencyMs}ms</div>
     <p class="small"><strong>Normalized:</strong> ${escapeHtml(run.normalizedProblem || "—")}</p>
     <div class="row">
       <button id="approve" ${run.status === "AWAITING_APPROVAL" ? "" : "disabled"}>Approve gate</button>
       <button id="reject" class="danger" ${run.status === "AWAITING_APPROVAL" ? "" : "disabled"}>Reject</button>
       <button id="resume" class="secondary" ${run.status === "SAFE_STOPPED" ? "" : "disabled"}>Resume</button>
       <button id="stop" class="warn">Safe stop</button>
+      <button id="fault" class="warn">Inject FAIL_TESTING</button>
+      <button id="replan" class="secondary">Mutate upstream (re-plan)</button>
     </div>
     <h2 style="margin-top:1rem">Stages (DAG)</h2>
     ${stages}
@@ -77,38 +89,46 @@ function renderRun(run) {
     <div class="lineage card">${lineage || "<div class='small'>No events yet</div>"}</div>
   `;
 
-  document.getElementById("approve")?.addEventListener("click", async () => {
-    const res = await fetch(`/api/orchestration/runs/${currentRunId}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actor: "operator" }),
-    });
-    renderRun(await res.json());
-    refreshMetrics();
+  bind("approve", async () =>
+    post(`/api/orchestration/runs/${currentRunId}/approve`, { actor: "operator" }));
+  bind("reject", async () =>
+    post(`/api/orchestration/runs/${currentRunId}/reject`, { reason: "Operator rejected" }));
+  bind("resume", async () => post(`/api/orchestration/runs/${currentRunId}/resume`));
+  bind("stop", async () =>
+    post(`/api/orchestration/runs/${currentRunId}/safe-stop`, { reason: "Operator safe-stop" }));
+  bind("fault", async () =>
+    post(`/api/orchestration/runs/${currentRunId}/fault`, { type: "FAIL_TESTING", once: false }));
+  bind("replan", async () =>
+    post(`/api/orchestration/runs/${currentRunId}/mutate-upstream`, {
+      requirement: "Updated upstream: ship HTTPS-only short links with stats for leadership demo.",
+    }));
+}
+
+function bind(id, fn) {
+  document.getElementById(id)?.addEventListener("click", async () => {
+    const data = await fn();
+    if (data) {
+      renderRun(data);
+      refreshMetrics();
+    }
   });
-  document.getElementById("reject")?.addEventListener("click", async () => {
-    const res = await fetch(`/api/orchestration/runs/${currentRunId}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "Operator rejected high-impact action" }),
-    });
-    renderRun(await res.json());
-    refreshMetrics();
+}
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: headers(body !== undefined),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  document.getElementById("resume")?.addEventListener("click", async () => {
-    const res = await fetch(`/api/orchestration/runs/${currentRunId}/resume`, { method: "POST" });
-    renderRun(await res.json());
-    refreshMetrics();
-  });
-  document.getElementById("stop")?.addEventListener("click", async () => {
-    const res = await fetch(`/api/orchestration/runs/${currentRunId}/safe-stop`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "Operator safe-stop" }),
-    });
-    renderRun(await res.json());
-    refreshMetrics();
-  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    runView.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="small" style="color:#b91c1c">${escapeHtml(data.message || data.error || res.statusText)}</div>`
+    );
+    return null;
+  }
+  return data;
 }
 
 function escapeHtml(v) {
@@ -119,21 +139,14 @@ function escapeHtml(v) {
 }
 
 document.getElementById("start").addEventListener("click", async () => {
-  const res = await fetch("/api/orchestration/runs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      scenario: scenarioEl.value,
-      requirement: requirementEl.value,
-    }),
+  const data = await post("/api/orchestration/runs", {
+    scenario: scenarioEl.value,
+    requirement: requirementEl.value,
   });
-  const data = await res.json();
-  if (!res.ok) {
-    runView.innerHTML = `<div class="small" style="color:#b91c1c">${escapeHtml(data.message || data.detail || "Failed to start")}</div>`;
-    return;
+  if (data) {
+    renderRun(data);
+    refreshMetrics();
   }
-  renderRun(data);
-  refreshMetrics();
 });
 
 requirementEl.value = PRESETS.greenfield;

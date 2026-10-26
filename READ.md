@@ -1,36 +1,18 @@
-# What we are going to do
+# What we are going to do / did
 
-Based on `docs/assignment.pdf` (Schwab: Agentic Proficient Software Engineer — URL Shortener).
+Assessment: agentic SDLC system for a URL shortener.
 
-## Goal
+## Feedback addressed
 
-Build a **working prototype** of an **agentic software-engineering system** that:
+1. Real concurrent stage execution + sync barrier  
+2. Output-validating entry/exit gates (`GatePolicy`)  
+3. Retry, fallback edge, snapshot rollback, safe-stop + fault injection  
+4. Dynamic re-plan on upstream mutation (not hard-coded clarification)  
+5. Cross-stage decisions + metrics from real runs  
+6. Broader security/compliance/change-control policies  
+7. Expiry, delete, alias, rate limit, API auth, H2 persistence  
+8. Stronger unit/integration tests  
+9. Architecture doc aligned to code  
+10. Final engineering summary  
 
-1. Understands a requirement (greenfield / brownfield / ambiguous)
-2. Decomposes it into an SDLC **dependency graph**
-3. Orchestrates multi-step execution with **gates, approvals, retries, rollback, safe-stop**
-4. Produces engineering outputs for a **URL shortener** (APIs, analytics, reliability)
-5. Validates with guardrails, audit lineage, and reliability metrics
-6. Keeps **humans in control** of high-impact actions
-
-## Not in scope of the old demo
-
-The previous generic “Agentic playground” (mock chat tools) was **not** the assignment. This project replaces it.
-
-## Deliverables we will ship
-
-- Runnable Spring Boot prototype (URL shortener + orchestration dashboard)
-- Architecture overview (`docs/ARCHITECTURE.md` + `README.md`)
-- Three scenarios: greenfield, brownfield, ambiguous
-- Setup / run instructions
-- Tests, limitations, trade-offs
-
-## How to run
-
-```bash
-./mvnw spring-boot:run
-```
-
-Open http://127.0.0.1:43127
-
-Full details: see `README.md`.
+See `README.md`, `docs/ARCHITECTURE.md`, `docs/FINAL_SUMMARY.md`.

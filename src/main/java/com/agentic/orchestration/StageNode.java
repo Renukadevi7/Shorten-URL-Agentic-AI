@@ -13,19 +13,21 @@ public class StageNode {
 	private final List<String> dependsOn;
 	private final boolean requiresHumanApproval;
 	private final int maxRetries;
+	private final String fallbackStageId;
 	private StageStatus status = StageStatus.BLOCKED;
 	private int attempts;
 	private String output;
 	private final Map<String, Object> artifacts = new LinkedHashMap<>();
 
 	public StageNode(String id, StageType type, String title, List<String> dependsOn, boolean requiresHumanApproval,
-			int maxRetries) {
+			int maxRetries, String fallbackStageId) {
 		this.id = id;
 		this.type = type;
 		this.title = title;
 		this.dependsOn = List.copyOf(dependsOn);
 		this.requiresHumanApproval = requiresHumanApproval;
 		this.maxRetries = maxRetries;
+		this.fallbackStageId = fallbackStageId;
 	}
 
 	public String id() {
@@ -52,6 +54,10 @@ public class StageNode {
 		return maxRetries;
 	}
 
+	public String fallbackStageId() {
+		return fallbackStageId;
+	}
+
 	public StageStatus status() {
 		return status;
 	}
@@ -66,6 +72,10 @@ public class StageNode {
 
 	public void incrementAttempts() {
 		attempts++;
+	}
+
+	public void resetAttempts() {
+		attempts = 0;
 	}
 
 	public String output() {
@@ -86,6 +96,7 @@ public class StageNode {
 		map.put("type", type.name());
 		map.put("title", title);
 		map.put("dependsOn", dependsOn);
+		map.put("fallbackStageId", fallbackStageId);
 		map.put("requiresHumanApproval", requiresHumanApproval);
 		map.put("maxRetries", maxRetries);
 		map.put("status", status.name());
@@ -95,7 +106,12 @@ public class StageNode {
 		return map;
 	}
 
-	public static StageNode from(String id, StageType type, String title, List<String> deps, boolean approval) {
-		return new StageNode(id, type, title, deps == null ? List.of() : new ArrayList<>(deps), approval, 2);
+	public static StageNode of(String id, StageType type, String title, List<String> deps, boolean approval,
+			String fallback) {
+		return new StageNode(id, type, title, deps == null ? List.of() : new ArrayList<>(deps), approval, 2, fallback);
+	}
+
+	public static StageNode of(String id, StageType type, String title, List<String> deps, boolean approval) {
+		return of(id, type, title, deps, approval, null);
 	}
 }

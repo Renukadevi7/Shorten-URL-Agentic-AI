@@ -38,8 +38,10 @@
           <button id="start" type="button">Start orchestration</button>
         </div>
         <p class="small" style="margin-top:0.75rem">
-          Product APIs also available: <code>POST /api/urls</code>, <code>GET /{code}</code>,
-          <code>GET /api/urls/{code}/stats</code>.
+          Mutating APIs require header <code>X-API-Key: demo-api-key-change-me</code>.
+          Product: <code>POST /api/urls</code>, <code>DELETE /api/urls/{code}</code>,
+          <code>GET /{code}</code>, <code>GET /api/urls/{code}/stats</code>.
+          Demo controls: inject <code>FAIL_TESTING</code> or mutate upstream to force re-plan.
         </p>
         <h2 style="margin-top:1rem">Reliability metrics</h2>
         <div id="metrics" class="metrics"></div>
