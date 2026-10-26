@@ -170,28 +170,8 @@ body {
   margin: 0 0 0.75rem;
 }
 
-.build-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: #0b5fff;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(11, 95, 255, 0.35);
-  border-radius: 999px;
-  padding: 0.25rem 0.65rem;
-  margin: 0 0 1.25rem;
-  backdrop-filter: blur(6px);
-}
-
-.build-tag::before {
-  content: "";
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: #0d9488;
-  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.25);
+.lede + .grid {
+  margin-top: 0.25rem;
 }
 
 .grid {
