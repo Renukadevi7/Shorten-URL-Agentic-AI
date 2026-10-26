@@ -1,54 +1,184 @@
 :root {
-  --ink: #152033;
-  --muted: #5b6b7c;
-  --line: #d5dde8;
-  --panel: #f5f8fc;
+  --ink: #132238;
+  --muted: #5a6b7d;
+  --line: #cfd9e6;
+  --panel: rgba(245, 248, 252, 0.88);
   --accent: #0b5fff;
   --accent-2: #0f766e;
   --warn: #b45309;
   --danger: #b91c1c;
   --ok: #15803d;
-  --bg1: #e8eef8;
-  --bg2: #f7fafc;
+  --bg-deep: #dfe8f4;
+  --bg-mid: #f3f7fb;
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --display: "Fraunces", Georgia, serif;
 }
 
 * { box-sizing: border-box; }
-body {
+
+html, body {
   margin: 0;
+  min-height: 100%;
+}
+
+body {
   font-family: var(--font);
   color: var(--ink);
-  background:
-    radial-gradient(900px 420px at 0% 0%, #dbe7ff, transparent 60%),
-    radial-gradient(700px 380px at 100% 0%, #d9f3ee, transparent 55%),
-    linear-gradient(180deg, var(--bg2), var(--bg1));
-  min-height: 100vh;
+  background: linear-gradient(165deg, var(--bg-mid) 0%, var(--bg-deep) 100%);
+  position: relative;
+  overflow-x: hidden;
 }
-.wrap { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+
+/* Atmosphere layers */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.85;
+  will-change: transform, opacity;
+}
+
+.bg-glow-a {
+  width: min(70vw, 720px);
+  height: min(70vw, 720px);
+  top: -18%;
+  left: -12%;
+  background: radial-gradient(circle, rgba(11, 95, 255, 0.28) 0%, rgba(11, 95, 255, 0) 70%);
+  animation: drift-a 18s ease-in-out infinite alternate;
+}
+
+.bg-glow-b {
+  width: min(55vw, 560px);
+  height: min(55vw, 560px);
+  top: -8%;
+  right: -14%;
+  background: radial-gradient(circle, rgba(15, 118, 110, 0.26) 0%, rgba(15, 118, 110, 0) 70%);
+  animation: drift-b 22s ease-in-out infinite alternate;
+}
+
+.bg-glow-c {
+  width: min(50vw, 480px);
+  height: min(50vw, 480px);
+  bottom: -18%;
+  left: 28%;
+  background: radial-gradient(circle, rgba(30, 64, 120, 0.16) 0%, rgba(30, 64, 120, 0) 72%);
+  animation: drift-c 26s ease-in-out infinite alternate;
+}
+
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(19, 34, 56, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19, 34, 56, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 20%, transparent 75%);
+}
+
+.bg-nodes {
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(circle at 12% 22%, rgba(11, 95, 255, 0.55) 0 2px, transparent 3px),
+    radial-gradient(circle at 28% 48%, rgba(15, 118, 110, 0.5) 0 2px, transparent 3px),
+    radial-gradient(circle at 68% 18%, rgba(11, 95, 255, 0.45) 0 2px, transparent 3px),
+    radial-gradient(circle at 82% 42%, rgba(15, 118, 110, 0.45) 0 2px, transparent 3px),
+    radial-gradient(circle at 54% 62%, rgba(19, 34, 56, 0.28) 0 2px, transparent 3px),
+    linear-gradient(115deg, transparent 0 46%, rgba(11, 95, 255, 0.12) 46% 46.4%, transparent 46.4% 100%),
+    linear-gradient(28deg, transparent 0 38%, rgba(15, 118, 110, 0.12) 38% 38.35%, transparent 38.35% 100%);
+  animation: pulse-nodes 10s ease-in-out infinite;
+}
+
+@keyframes drift-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(4%, 6%) scale(1.08); }
+}
+
+@keyframes drift-b {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-5%, 8%) scale(1.1); }
+}
+
+@keyframes drift-c {
+  from { transform: translate(0, 0); opacity: 0.7; }
+  to { transform: translate(6%, -4%); opacity: 1; }
+}
+
+@keyframes pulse-nodes {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+  animation: rise-in 0.7s ease-out both;
+}
+
 .brand {
   font-family: var(--display);
   font-size: clamp(2.2rem, 5vw, 3.4rem);
   margin: 0 0 0.4rem;
   letter-spacing: -0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
 }
-.lede { color: var(--muted); max-width: 46rem; line-height: 1.55; margin: 0 0 1.5rem; }
-.grid { display: grid; gap: 1.25rem; }
+
+.lede {
+  color: var(--muted);
+  max-width: 46rem;
+  line-height: 1.55;
+  margin: 0 0 1.5rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1.25rem;
+  animation: rise-in 0.85s ease-out 0.08s both;
+}
+
 @media (min-width: 960px) {
   .grid { grid-template-columns: 0.95fr 1.05fr; }
 }
+
 .card {
-  background: rgba(255,255,255,0.72);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(207, 217, 230, 0.95);
   border-radius: 14px;
   padding: 1rem;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(19, 34, 56, 0.05);
 }
-label { display:block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
 select, textarea, input, button {
   font: inherit;
 }
+
 select, textarea, input {
   width: 100%;
   border: 1px solid var(--line);
@@ -56,8 +186,16 @@ select, textarea, input {
   padding: 0.65rem 0.75rem;
   background: #fff;
 }
+
 textarea { min-height: 7rem; resize: vertical; }
-.row { display:flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
 button {
   border: 0;
   border-radius: 10px;
@@ -67,11 +205,19 @@ button {
   color: white;
   font-weight: 600;
 }
+
 button.secondary { background: #e8eef8; color: var(--ink); }
 button.warn { background: var(--warn); }
 button.danger { background: var(--danger); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-.chips { display:flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0 0.75rem; }
+
+.chips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 0.75rem;
+}
+
 .chip {
   border: 1px solid var(--line);
   background: #fff;
@@ -81,24 +227,43 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 0.8rem;
   cursor: pointer;
 }
-.chip.active { border-color: var(--accent); color: var(--accent); }
-.metrics { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0.5rem; }
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
 .metric {
   background: var(--panel);
   border-radius: 10px;
   padding: 0.65rem;
   border: 1px solid var(--line);
 }
-.metric b { display:block; font-size: 1.1rem; }
+
+.metric b { display: block; font-size: 1.1rem; }
 .metric span { color: var(--muted); font-size: 0.75rem; }
+
 .stage {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 0.7rem;
   margin-bottom: 0.55rem;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.92);
 }
-.stage-head { display:flex; justify-content: space-between; gap: 0.5rem; align-items:center; }
+
+.stage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .badge {
   font-family: var(--mono);
   font-size: 0.68rem;
@@ -107,10 +272,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 0.15rem 0.5rem;
   border: 1px solid var(--line);
 }
+
 .badge.SUCCEEDED { color: var(--ok); border-color: #86efac; }
 .badge.AWAITING_APPROVAL { color: var(--warn); border-color: #fcd34d; }
 .badge.FAILED, .badge.ROLLED_BACK, .badge.SAFE_STOPPED { color: var(--danger); border-color: #fecaca; }
 .badge.RUNNING, .badge.READY { color: var(--accent); }
+
 pre {
   white-space: pre-wrap;
   font-family: var(--mono);
@@ -120,6 +287,13 @@ pre {
   padding: 0.55rem;
   overflow: auto;
 }
+
 .lineage { max-height: 220px; overflow: auto; }
 .small { color: var(--muted); font-size: 0.85rem; }
 h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-glow-a, .bg-glow-b, .bg-glow-c, .bg-nodes, .wrap, .grid {
+    animation: none !important;
+  }
+}
