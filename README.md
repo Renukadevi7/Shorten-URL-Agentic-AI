@@ -16,6 +16,28 @@ API key for mutating endpoints:
 X-API-Key: demo-api-key-change-me
 ```
 
+## After git pull — force a clean UI reload
+
+Your browser + Spring can keep old CSS. After pulling UI changes:
+
+```bash
+# 1) confirm you actually have the background markup
+grep -n "bg-glow\|build-tag\|20261026b" src/main/resources/templates/index.html
+
+# 2) stop any old Java process on 43127, then rebuild/run
+./mvnw clean spring-boot:run
+```
+
+Then hard-refresh the browser: **Ctrl+Shift+R** (Windows) / **Cmd+Shift+R** (Mac).
+
+You should see:
+- a **blue animated top ribbon**
+- **blue/teal glow + grid** behind the cards
+- a pill: `UI build 20261026b · atmospheric background enabled`
+- Live-run buttons including **Inject FAIL_TESTING** and **Mutate upstream (re-plan)**
+
+If `grep` finds nothing, you pulled a different remote/branch than the one with the UI update.
+
 ## What was strengthened (feedback response)
 
 1. **Parallel execution** — ready stages run on a thread pool; `CompletableFuture.allOf` sync barrier
