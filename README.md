@@ -1,111 +1,96 @@
-# Agentic URL Shortener — SDLC Orchestration Prototype
+# Agentic URL Shortener
 
-Working prototype for the Agentic Software Engineering assessment: an orchestration control plane that turns requirements into reviewable engineering outcomes for a **URL shortener**.
+Working prototype of an **agentic SDLC orchestration control plane** that turns a requirement into a reviewable engineering outcome for a URL shortener.
 
-## Quick start
+The system coordinates requirements → architecture → implementation → testing → documentation → release readiness using an explicit stage DAG, entry/exit gates, human approvals, retries/fallback/rollback, dynamic re-planning, policy guardrails, and audit metrics.
 
-Requires **JDK 17+** and a correct `JAVA_HOME` (especially in WSL).
+## Requirements
 
-```bash
-# WSL: find and export Java before Maven
-export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
-echo "$JAVA_HOME"
-java -version
-./mvnw spring-boot:run
-```
+- JDK 17+
+- Maven Wrapper included (`./mvnw` / `mvnw.cmd`)
 
-Open http://127.0.0.1:43127
-
-### Fix: `JAVA_HOME environment variable is not defined correctly`
-
-In **WSL** run these in order:
+## Installation & run
 
 ```bash
-# 1) Is java installed?
-which java
+git clone <repository-url>
+cd <repository-directory>
+
+# Ensure JAVA_HOME points at a JDK 17+ installation
 java -version
 
-# 2) Common install locations
-ls /usr/lib/jvm 2>/dev/null
-ls "$HOME/.sdkman/candidates/java" 2>/dev/null
-
-# 3a) If Java exists, set JAVA_HOME for this shell
-export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
-export PATH="$JAVA_HOME/bin:$PATH"
-
-# 3b) If java is missing, install Temurin 17 then retry 3a
-sudo apt update
-sudo apt install -y wget apt-transport-https
-wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo tee /etc/apt/trusted.gpg.d/adoptium.asc >/dev/null
-echo "deb https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/adoptium.list
-sudo apt update
-sudo apt install -y temurin-17-jdk
-
-# 4) Persist for next WSL sessions
-echo "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> ~/.bashrc
-echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# 5) Run the app
-cd "/mnt/c/Users/jrenu/Workspace/Charles Sche Agentic AI projects"
 ./mvnw clean spring-boot:run
 ```
 
-**PowerShell note:** do not run `./mvnw` from PowerShell if Java only works in WSL — stay in the WSL shell (`jrenu@RenuBala:...$`).
+On Windows (Command Prompt / PowerShell):
 
-API key for mutating endpoints:
+```bat
+mvnw.cmd clean spring-boot:run
+```
+
+Open [http://127.0.0.1:43127](http://127.0.0.1:43127)
+
+Mutating APIs require:
 
 ```http
 X-API-Key: demo-api-key-change-me
 ```
 
-## After git pull — force a clean UI reload
-
-Your browser + Spring can keep old CSS. After pulling UI changes:
+## Tests
 
 ```bash
-# 1) confirm you actually have the background markup
-grep -n "bg-glow\|build-tag\|20261026b" src/main/resources/templates/index.html
-
-# 2) stop any old Java process on 43127, then rebuild/run
-./mvnw clean spring-boot:run
+./mvnw test
 ```
 
-Then hard-refresh the browser: **Ctrl+Shift+R** (Windows) / **Cmd+Shift+R** (Mac).
+## Scenarios
 
-You should see:
-- a **blue animated top ribbon**
-- **blue/teal glow + grid** behind the cards
-- a pill: `UI build 20261026b · atmospheric background enabled`
-- Live-run buttons including **Inject FAIL_TESTING** and **Mutate upstream (re-plan)**
-
-If `grep` finds nothing, you pulled a different remote/branch than the one with the UI update.
+| Scenario | Purpose |
+| --- | --- |
+| **greenfield** | Build shortener capabilities under a gated SDLC |
+| **brownfield** | Impact analysis and analytics/reliability evolution |
+| **ambiguous** | Provisional scope; use mutate-upstream to force dynamic re-plan |
 
 ## Core APIs
 
 ### Orchestration
-- `POST /api/orchestration/runs`
-- `POST /api/orchestration/runs/{id}/approve|reject|resume|safe-stop`
-- `POST /api/orchestration/runs/{id}/fault` `{"type":"FAIL_TESTING","once":false}`
-- `POST /api/orchestration/runs/{id}/mutate-upstream` `{"requirement":"..."}`
-- `GET /api/orchestration/metrics`
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/orchestration/runs` | Start a scenario run |
+| `GET` | `/api/orchestration/runs` | List runs |
+| `GET` | `/api/orchestration/runs/{id}` | Get run detail + lineage |
+| `POST` | `/api/orchestration/runs/{id}/approve` | Approve gated stage |
+| `POST` | `/api/orchestration/runs/{id}/reject` | Reject / safe-stop |
+| `POST` | `/api/orchestration/runs/{id}/resume` | Resume after safe-stop |
+| `POST` | `/api/orchestration/runs/{id}/safe-stop` | Operator safe-stop |
+| `POST` | `/api/orchestration/runs/{id}/fault` | Fault injection (`FAIL_TESTING`) |
+| `POST` | `/api/orchestration/runs/{id}/mutate-upstream` | Trigger dynamic re-plan |
+| `GET` | `/api/orchestration/metrics` | Reliability metrics |
 
 ### URL shortener
-- `POST /api/urls` `{"url":"https://...","customAlias":"opt","ttlSeconds":3600}`
-- `GET /{code}` public redirect
-- `DELETE /api/urls/{code}`
-- `GET /api/urls/{code}/stats`
-- `GET /api/urls/features`
 
-## Scenarios
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/urls` | Create short URL (`url`, optional `customAlias`, `ttlSeconds`) |
+| `GET` | `/{code}` | Public redirect |
+| `DELETE` | `/api/urls/{code}` | Soft-delete |
+| `GET` | `/api/urls/{code}/stats` | Click analytics |
+| `GET` | `/api/urls/features` | Feature flags |
 
-- **greenfield** — build shortener capabilities under gated SDLC
-- **brownfield** — impact analysis + analytics/reliability evolution
-- **ambiguous** — start provisional; use mutate-upstream to force dynamic re-plan
+## Project structure
 
-## Docs
+```
+src/main/java/com/agentic/
+  orchestration/   # DAG orchestrator, gates, policy, metrics, audit
+  shortener/       # URL shortener domain + H2 persistence
+  scenarios/       # greenfield / brownfield / ambiguous graphs
+  web/             # REST controllers, auth & rate-limit filters
+docs/
+  ARCHITECTURE.md  # Components and control flow
+  FINAL_SUMMARY.md # Plan, evidence, risks, limitations
+  assignment.pdf   # Original assignment
+```
 
-- `READ.md` — plan overview
-- `docs/ARCHITECTURE.md` — components and control flow
-- `docs/FINAL_SUMMARY.md` — rationale, evidence, risks, limitations
-- `docs/assignment.pdf` — original assignment
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Final engineering summary](docs/FINAL_SUMMARY.md)
