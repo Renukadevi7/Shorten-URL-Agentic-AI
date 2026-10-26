@@ -107,6 +107,10 @@ public class GatePolicy {
 	private List<String> validateDependencyOutput(StageNode dep, StageNode consumer) {
 		List<String> violations = new ArrayList<>();
 		if (dep.type() == StageType.TESTING && consumer.type() == StageType.RELEASE_READINESS) {
+			// Primary test may be SKIPPED after a successful fallback path.
+			if (dep.status() == StageStatus.SKIPPED) {
+				return violations;
+			}
 			Object passed = dep.artifacts().get("passed");
 			if (!Boolean.TRUE.equals(passed) && !Boolean.TRUE.equals(dep.artifacts().get("testPassed"))) {
 				// also accept context-driven runs where artifact uses testReport only

@@ -41,14 +41,18 @@ class OrchestratorServiceTest {
 	void faultInjectionActivatesFallbackPath() {
 		OrchestrationRun run = orchestrator.start("greenfield",
 				"Build a URL shortener with create and redirect APIs over HTTPS.");
-		orchestrator.injectFault(run.id(), "FAIL_TESTING", true);
+		orchestrator.injectFault(run.id(), "FAIL_TESTING", false); // sticky fault forces fallback
 		orchestrator.approve(run.id(), "tester"); // impl approval continues into test/docs
 		OrchestrationRun after = orchestrator.get(run.id()).orElseThrow();
 		Set<String> kinds = after.lineage().stream().map(AuditEvent::kind).collect(Collectors.toSet());
 		assertTrue(kinds.contains("FAULT_INJECTION"));
-		assertTrue(kinds.contains("STAGE_FAILURE") || kinds.contains("FALLBACK_ACTIVATED")
-				|| kinds.contains("RETRY") || after.status() == RunStatus.AWAITING_APPROVAL
-				|| after.status() == RunStatus.SAFE_STOPPED || after.status() == RunStatus.COMPLETED);
+		assertTrue(kinds.contains("FALLBACK_ACTIVATED") || kinds.contains("RETRY"));
+		assertTrue(after.status() == RunStatus.AWAITING_APPROVAL
+				|| after.status() == RunStatus.SAFE_STOPPED
+				|| after.status() == RunStatus.COMPLETED,
+				"fault path must not hang; status=" + after.status());
+		assertTrue(after.lineage().stream().filter(e -> "PARALLEL_WAVE".equals(e.kind())).count() < 50,
+				"must not infinite-loop parallel waves");
 	}
 
 	@Test

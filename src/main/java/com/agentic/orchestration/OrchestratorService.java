@@ -194,6 +194,13 @@ public class OrchestratorService {
 			if (run.status() == RunStatus.AWAITING_APPROVAL || isTerminal(run.status())) {
 				return;
 			}
+
+			// Prevent infinite waves: if every stage in this wave stayed blocked, stop safely.
+			boolean progressed = ready.stream().anyMatch(stage -> stage.status() != StageStatus.BLOCKED);
+			if (!progressed) {
+				safeStop(run, "No progress: ready stages remained entry-gate blocked");
+				return;
+			}
 		}
 	}
 
@@ -203,7 +210,9 @@ public class OrchestratorService {
 			if (!entryViolations.isEmpty()) {
 				auditLog.record(run, stage.id(), "ENTRY_GATE_BLOCKED",
 						"Entry gate failed output validation", Map.of("violations", entryViolations));
+				// Sticky block — readyStages will not re-queue until deps/context change.
 				stage.setStatus(StageStatus.BLOCKED);
+				run.context().put("entryBlocked_" + stage.id(), true);
 				return;
 			}
 
@@ -222,9 +231,7 @@ public class OrchestratorService {
 			}
 		}
 		catch (RuntimeException ex) {
-			synchronized (run) {
-				handleFailure(run, stage, ex);
-			}
+			handleFailure(run, stage, ex);
 		}
 	}
 
@@ -248,54 +255,81 @@ public class OrchestratorService {
 	}
 
 	private void handleFailure(OrchestrationRun run, StageNode stage, RuntimeException ex) {
-		auditLog.record(run, stage.id(), "STAGE_FAILURE", ex.getMessage(), Map.of("attempt", stage.attempts()));
+		synchronized (run) {
+			auditLog.record(run, stage.id(), "STAGE_FAILURE", ex.getMessage(),
+					Map.of("attempt", stage.attempts()));
+		}
 		if (stage.attempts() <= stage.maxRetries()) {
-			run.setStatus(RunStatus.RETRYING);
-			run.incrementRetries();
-			metricsRegistry.onRetry();
-			auditLog.record(run, stage.id(), "RETRY", "Bounded retry after failure",
-					Map.of("attempt", stage.attempts(), "maxRetries", stage.maxRetries()));
+			synchronized (run) {
+				run.setStatus(RunStatus.RETRYING);
+				run.incrementRetries();
+				metricsRegistry.onRetry();
+				auditLog.record(run, stage.id(), "RETRY", "Bounded retry after failure",
+						Map.of("attempt", stage.attempts(), "maxRetries", stage.maxRetries()));
+			}
 			try {
+				// Retry outside the run lock so peer stages in the same wave are not stalled.
 				stageExecutor.execute(run, stage);
-				exitGate(run, stage);
-				if (run.status() != RunStatus.AWAITING_APPROVAL) {
-					run.setStatus(RunStatus.RUNNING);
+				synchronized (run) {
+					exitGate(run, stage);
+					if (run.status() != RunStatus.AWAITING_APPROVAL) {
+						run.setStatus(RunStatus.RUNNING);
+					}
 				}
 				return;
 			}
 			catch (RuntimeException retryEx) {
-				auditLog.record(run, stage.id(), "RETRY_FAILED", retryEx.getMessage(), Map.of());
+				synchronized (run) {
+					auditLog.record(run, stage.id(), "RETRY_FAILED", retryEx.getMessage(), Map.of());
+				}
 			}
 		}
 
-		if (stage.fallbackStageId() != null) {
-			StageNode fallback = run.stages().get(stage.fallbackStageId());
-			if (fallback != null) {
-				stage.setStatus(StageStatus.FAILED);
-				auditLog.record(run, stage.id(), "FALLBACK_ACTIVATED",
-						"Primary stage exhausted retries; activating fallback " + fallback.id(), Map.of());
-				// release dependency: treat primary as skipped for graph progress via fallback success
-				run.context().put("fallbackFor_" + stage.id(), fallback.id());
-				fallback.setStatus(StageStatus.READY);
-				fallback.resetAttempts();
-				try {
-					executeStage(run, fallback);
-					if (fallback.status() == StageStatus.SUCCEEDED) {
-						// allow release deps that required primary test to accept fallback
-						run.context().put("acceptedFallback_" + stage.id(), true);
-						stage.setStatus(StageStatus.SKIPPED);
-						run.setStatus(RunStatus.RUNNING);
-						return;
-					}
+		StageNode fallback = null;
+		synchronized (run) {
+			if (stage.fallbackStageId() != null) {
+				fallback = run.stages().get(stage.fallbackStageId());
+				if (fallback != null) {
+					stage.setStatus(StageStatus.FAILED);
+					auditLog.record(run, stage.id(), "FALLBACK_ACTIVATED",
+							"Primary stage exhausted retries; activating fallback " + fallback.id(), Map.of());
+					run.context().put("fallbackFor_" + stage.id(), fallback.id());
+					fallback.setStatus(StageStatus.READY);
+					fallback.resetAttempts();
+					run.context().remove("entryBlocked_" + fallback.id());
 				}
-				catch (RuntimeException fallbackEx) {
+			}
+		}
+
+		if (fallback != null) {
+			try {
+				executeStage(run, fallback);
+				if (fallback.status() == StageStatus.SUCCEEDED) {
+					synchronized (run) {
+						run.context().put("acceptedFallback_" + stage.id(), true);
+						// Mark primary as skipped so release deps treat fallback as accepted.
+						stage.setStatus(StageStatus.SKIPPED);
+						stage.artifacts().put("passed", true);
+						stage.artifacts().put("testPassed", true);
+						stage.artifacts().put("testReport", "Accepted via fallback " + fallback.id());
+						stage.setOutput("Skipped after successful fallback " + fallback.id());
+						run.context().remove("entryBlocked_release");
+						run.setStatus(RunStatus.RUNNING);
+					}
+					return;
+				}
+			}
+			catch (RuntimeException fallbackEx) {
+				synchronized (run) {
 					auditLog.record(run, fallback.id(), "FALLBACK_FAILED", fallbackEx.getMessage(), Map.of());
 				}
 			}
 		}
 
-		performRollback(run, stage);
-		safeStop(run, "Stage failed after retries/fallback: " + ex.getMessage());
+		synchronized (run) {
+			performRollback(run, stage);
+			safeStop(run, "Stage failed after retries/fallback: " + ex.getMessage());
+		}
 	}
 
 	private void performRollback(OrchestrationRun run, StageNode stage) {
@@ -399,15 +433,14 @@ public class OrchestratorService {
 					|| stage.status() == StageStatus.ROLLED_BACK || stage.status() == StageStatus.FAILED) {
 				continue;
 			}
+			// Sticky entry-gate failure: do not thrash the same stage every wave.
+			if (Boolean.TRUE.equals(run.context().get("entryBlocked_" + stage.id()))) {
+				continue;
+			}
 			// Special-case: test_fallback stays blocked unless activated via fallback
-			if (stage.type() == StageType.TESTING_FALLBACK
-					&& !Boolean.TRUE.equals(run.context().get("acceptedFallback_test"))
-					&& stage.status() != StageStatus.READY) {
-				// only runnable when explicitly set READY by fallback activation
-				if (stage.status() != StageStatus.READY) {
-					stage.setStatus(StageStatus.BLOCKED);
-					continue;
-				}
+			if (stage.type() == StageType.TESTING_FALLBACK && stage.status() != StageStatus.READY) {
+				stage.setStatus(StageStatus.BLOCKED);
+				continue;
 			}
 			boolean depsMet = stage.dependsOn().stream().allMatch(dep -> {
 				StageNode parent = run.stages().get(dep);
