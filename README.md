@@ -81,19 +81,6 @@ You should see:
 
 If `grep` finds nothing, you pulled a different remote/branch than the one with the UI update.
 
-## What was strengthened (feedback response)
-
-1. **Parallel execution** — ready stages run on a thread pool; `CompletableFuture.allOf` sync barrier
-2. **Gates** — `GatePolicy` validates artifacts/context (tests passed, architecture present, release policy)
-3. **Retry / fallback / rollback / safe-stop** — retries, `test_fallback` edge, H2 snapshot restore, safe-stop; trigger via `/fault`
-4. **Dynamic re-plan** — `/mutate-upstream` changes fingerprint and inserts `REPLAN` stage
-5. **Lineage + metrics** — audit events + retries/rollbacks/latency/MTTR from real runs
-6. **Policy guardrails** — security/compliance/change-control beyond simple string checks
-7. **Shortener reliability** — expiry, delete, custom alias, rate limit, API auth, H2 persistence
-8. **Tests** — stricter unit + integration tests including auth and failure-oriented orchestration cases
-9. **Docs aligned** — `docs/ARCHITECTURE.md` matches real classes
-10. **Final summary** — `docs/FINAL_SUMMARY.md`
-
 ## Core APIs
 
 ### Orchestration
