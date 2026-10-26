@@ -4,11 +4,54 @@ Working prototype for the Agentic Software Engineering assessment: an orchestrat
 
 ## Quick start
 
+Requires **JDK 17+** and a correct `JAVA_HOME` (especially in WSL).
+
 ```bash
+# WSL: find and export Java before Maven
+export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+echo "$JAVA_HOME"
+java -version
 ./mvnw spring-boot:run
 ```
 
 Open http://127.0.0.1:43127
+
+### Fix: `JAVA_HOME environment variable is not defined correctly`
+
+In **WSL** run these in order:
+
+```bash
+# 1) Is java installed?
+which java
+java -version
+
+# 2) Common install locations
+ls /usr/lib/jvm 2>/dev/null
+ls "$HOME/.sdkman/candidates/java" 2>/dev/null
+
+# 3a) If Java exists, set JAVA_HOME for this shell
+export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# 3b) If java is missing, install Temurin 17 then retry 3a
+sudo apt update
+sudo apt install -y wget apt-transport-https
+wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo tee /etc/apt/trusted.gpg.d/adoptium.asc >/dev/null
+echo "deb https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/adoptium.list
+sudo apt update
+sudo apt install -y temurin-17-jdk
+
+# 4) Persist for next WSL sessions
+echo "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> ~/.bashrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# 5) Run the app
+cd "/mnt/c/Users/jrenu/Workspace/Charles Sche Agentic AI projects"
+./mvnw clean spring-boot:run
+```
+
+**PowerShell note:** do not run `./mvnw` from PowerShell if Java only works in WSL — stay in the WSL shell (`jrenu@RenuBala:...$`).
 
 API key for mutating endpoints:
 
