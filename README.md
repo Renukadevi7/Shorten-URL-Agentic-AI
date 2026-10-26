@@ -75,22 +75,3 @@ X-API-Key: demo-api-key-change-me
 | `DELETE` | `/api/urls/{code}` | Soft-delete |
 | `GET` | `/api/urls/{code}/stats` | Click analytics |
 | `GET` | `/api/urls/features` | Feature flags |
-
-## Project structure
-
-```
-src/main/java/com/agentic/
-  orchestration/   # DAG orchestrator, gates, policy, metrics, audit
-  shortener/       # URL shortener domain + H2 persistence
-  scenarios/       # greenfield / brownfield / ambiguous graphs
-  web/             # REST controllers, auth & rate-limit filters
-docs/
-  ARCHITECTURE.md  # Components and control flow
-  FINAL_SUMMARY.md # Plan, evidence, risks, limitations
-  assignment.pdf   # Original assignment
-```
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Final engineering summary](docs/FINAL_SUMMARY.md)
