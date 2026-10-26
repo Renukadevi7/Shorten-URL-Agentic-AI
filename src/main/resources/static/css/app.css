@@ -156,7 +156,11 @@ body {
   font-size: clamp(2.2rem, 5vw, 3.4rem);
   margin: 0 0 0.4rem;
   letter-spacing: -0.02em;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  background: linear-gradient(115deg, #0b5fff 0%, #2563eb 38%, #0d9488 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 .lede {
