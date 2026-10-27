@@ -26,8 +26,8 @@ import com.agentic.shortener.UrlShortenerService;
 
 /**
  * ChangeAgent that calls a pluggable {@link ModelClient}, writes real source, compiles it,
- * runs AliasRules unit checks, repairs on failure, then installs the class into the live product
- * via {@link AliasRulesHolder}.
+ * runs AliasRules unit checks in a <strong>forked JVM with timeout</strong>, repairs on failure,
+ * then installs the class into the live product via {@link AliasRulesHolder}.
  */
 @Primary
 @Component
@@ -35,6 +35,7 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 
 	private static final String RELATIVE = "src/main/java/com/agentic/generated/GeneratedAliasRules.java";
 	private static final String FQCN = "com.agentic.generated.GeneratedAliasRules";
+	private static final long UNIT_CHECK_TIMEOUT_SEC = 10L;
 
 	private final UrlShortenerService shortener;
 	private final PolicyGuardrail policyGuardrail;
@@ -61,6 +62,14 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 			throw new IllegalStateException("Unable to create agent workspace", ex);
 		}
 
+		Path casesFile;
+		try {
+			casesFile = AliasCaseMaterializer.writeTestFile(workspace, run.requirement());
+		}
+		catch (IOException ex) {
+			throw new IllegalStateException("Unable to materialize alias unit-check file", ex);
+		}
+
 		List<Map<String, Object>> drafts = new ArrayList<>();
 		String finalSource = null;
 		int acceptedDraft = -1;
@@ -76,7 +85,7 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 			catch (IOException ex) {
 				throw new IllegalStateException("Unable to write draft", ex);
 			}
-			Map<String, Object> result = validateDraft(workspace, file, source);
+			Map<String, Object> result = validateDraft(workspace, file, source, casesFile);
 			drafts.add(result);
 			if (Boolean.TRUE.equals(result.get("accepted"))) {
 				finalSource = source;
@@ -123,6 +132,9 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		operations.put("modelClient", modelClient.getClass().getSimpleName());
 		operations.put("installAliasRules", true);
 		operations.put("generatedClass", FQCN);
+		operations.put("aliasCasesFile", casesFile.toString());
+		operations.put("unitChecksIsolatedJvm", true);
+		operations.put("unitCheckTimeoutSec", UNIT_CHECK_TIMEOUT_SEC);
 		operations.put("resetProduct", reset);
 		operations.put("enableAnalytics", true);
 		operations.put("enableReliability", true);
@@ -143,12 +155,13 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 
 		run.context().put("agentDrafts", drafts);
 		run.context().put("agentWorkspace", workspace.toString());
+		run.context().put("aliasCasesFile", casesFile.toString());
 
 		return new ChangeArtifact(
 				changeId,
 				"Model change after " + acceptedDraft + " draft(s) via " + modelClient.getClass().getSimpleName(),
-				"generate→compile→test→repair for scenario=" + run.scenario(),
-				List.of(RELATIVE, "UrlShortenerService.java"),
+				"generate→policy→compile→isolated-test→repair for scenario=" + run.scenario(),
+				List.of(RELATIVE, "UrlShortenerService.java", casesFile.toString()),
 				diff,
 				openApi,
 				operations,
@@ -247,30 +260,34 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		run.context().put("changeValidated", true);
 	}
 
-	private Map<String, Object> validateDraft(Path workspace, Path file, String source) {
+	private Map<String, Object> validateDraft(Path workspace, Path file, String source, Path casesFile) {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("file", file.toString());
+		result.put("casesFile", casesFile.toString());
 		int policyHits = 0;
 		int compileErrors = 0;
 		int testFailures = 0;
 		String firstProblem = "";
-		if (source.contains("Runtime.getRuntime") || source.contains("ProcessBuilder")) {
-			policyHits = 1;
-			firstProblem = "[SECURITY] dangerous API blocked";
+		List<String> policy = DraftPolicyScanner.scan(RELATIVE, source);
+		if (!policy.isEmpty()) {
+			policyHits = policy.size();
+			firstProblem = "[SECURITY] " + policy.get(0);
+			result.put("policyHits", policy);
 		}
 		else if (!compile(workspace, file)) {
 			compileErrors = 1;
 			firstProblem = "compile failed for " + file.getFileName();
 		}
-		else if (!runGeneratedUnitChecks(workspace.resolve("classes"))) {
+		else if (!runIsolatedUnitChecks(workspace.resolve("classes"), casesFile)) {
 			testFailures = 1;
-			firstProblem = "AliasRules unit checks failed";
+			firstProblem = "AliasRules isolated unit checks failed or timed out";
 		}
 		boolean accepted = policyHits == 0 && compileErrors == 0 && testFailures == 0;
 		result.put("accepted", accepted);
 		result.put("policy", policyHits);
 		result.put("compile", compileErrors);
 		result.put("tests", testFailures);
+		result.put("isolatedJvm", true);
 		result.put("firstProblem", firstProblem);
 		return result;
 	}
@@ -284,26 +301,39 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 			pb.redirectErrorStream(true);
 			Process p = pb.start();
 			boolean finished = p.waitFor(30, TimeUnit.SECONDS);
-			return finished && p.exitValue() == 0;
+			if (!finished) {
+				p.destroyForcibly();
+				return false;
+			}
+			return p.exitValue() == 0;
 		}
 		catch (Exception ex) {
 			return false;
 		}
 	}
 
-	private boolean runGeneratedUnitChecks(Path classesDir) {
+	/** Runs checks in a separate JVM so a bad draft cannot hang or System.exit the app. */
+	private boolean runIsolatedUnitChecks(Path classesDir, Path casesFile) {
 		try {
-			AliasRules rules = loadRules(classesDir);
-			if (!rules.isValid("ok-alias")) {
+			String javaHome = System.getProperty("java.home");
+			String javaBin = Path.of(javaHome, "bin", "java").toString();
+			String cp = classesDir.toAbsolutePath() + System.getProperty("path.separator")
+					+ System.getProperty("java.class.path");
+			ProcessBuilder pb = new ProcessBuilder(
+					javaBin,
+					"-cp", cp,
+					AliasRulesIsolatedProbe.class.getName(),
+					classesDir.toAbsolutePath().toString(),
+					casesFile.toAbsolutePath().toString(),
+					FQCN);
+			pb.redirectErrorStream(true);
+			Process p = pb.start();
+			boolean finished = p.waitFor(UNIT_CHECK_TIMEOUT_SEC, TimeUnit.SECONDS);
+			if (!finished) {
+				p.destroyForcibly();
 				return false;
 			}
-			if (rules.isValid("ab")) { // too short
-				return false;
-			}
-			if (rules.isValid("admin")) { // reserved for generated reserved-aware builds; defaults also reject
-				return false;
-			}
-			return true;
+			return p.exitValue() == 0;
 		}
 		catch (Exception ex) {
 			return false;

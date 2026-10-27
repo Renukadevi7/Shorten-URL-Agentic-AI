@@ -92,6 +92,11 @@ class OrchestratorServiceTest {
 		assertTrue(drafts instanceof List<?> list && list.size() >= 2,
 				"repair loop should record a failed draft then an accepted draft");
 		assertEquals("ScriptedModelClient", ((Map<?, ?>) artifact.get("operations")).get("modelClient"));
+		assertEquals(true, ((Map<?, ?>) artifact.get("operations")).get("unitChecksIsolatedJvm"));
+		assertNotNull(((Map<?, ?>) artifact.get("operations")).get("aliasCasesFile"));
+		@SuppressWarnings("unchecked")
+		var draftsList = (java.util.List<Map<String, Object>>) ((Map<?, ?>) artifact.get("operations")).get("drafts");
+		assertTrue(draftsList.stream().anyMatch(d -> Boolean.TRUE.equals(d.get("isolatedJvm"))));
 		assertTrue(run.lineage().stream().anyMatch(e -> "AGENT_PRODUCE".equals(e.kind())));
 		assertTrue(run.lineage().stream().anyMatch(e -> "AGENT_VALIDATE".equals(e.kind())));
 	}

@@ -14,9 +14,11 @@ public class ModelClientConfig {
 
 	@Bean
 	@Primary
-	ModelClient modelClient(@Value("${agentic.model.url:}") String modelUrl) {
+	ModelClient modelClient(
+			@Value("${agentic.model.url:}") String modelUrl,
+			@Value("${agentic.model.api-key:}") String modelApiKey) {
 		if (modelUrl != null && !modelUrl.isBlank()) {
-			return new HttpModelClient(modelUrl.trim());
+			return new HttpModelClient(modelUrl.trim(), modelApiKey);
 		}
 		return new ScriptedModelClient();
 	}

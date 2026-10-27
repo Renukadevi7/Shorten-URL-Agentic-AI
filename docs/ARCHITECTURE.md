@@ -8,7 +8,7 @@
 | Stage graphs | `orchestration/graphs/*.json` + `StageGraphLoader` | Metadata: deps, entry/exit context/artifacts, fallback, approval, `activationOnly`, `completesRun` |
 | Gate policy | `GatePolicy` | Metadata-driven entry/exit validation (no stage-id switches) |
 | Stage executor | `StageExecutor` | Handler registry by JSON `handler` name; gate flags from `produces` metadata (`markProduces` for config-only stages) |
-| Change agent | `ChangeAgent` + `ModelClient` | draft→javac→unit-check→repair; installs `AliasRules` into the live shortener. Default `ScriptedModelClient` is a deterministic stand-in; set `agentic.model.url` for `HttpModelClient` |
+| Change agent | `ChangeAgent` + `ModelClient` | draft→policy scan→javac→**forked-JVM** AliasRules cases (requirement TSV)→repair; installs into `AliasRulesHolder`. Default `ScriptedModelClient` is a deterministic stand-in; `agentic.model.url` enables `HttpModelClient` (HTTPS + Bearer) |
 | Alias policy | `AliasRules` / `AliasRulesHolder` | Product uses agent-installed rules for alias validation |
 | Policy | `PolicyGuardrail` + `PolicyDecision` | Explicit ALLOW/BLOCK decisions with audit bundle |
 | Audit / metrics | `AuditLog`, `MetricsRegistry` | Lineage; MTTR only on recovery (never full-run latency as MTTR) |
