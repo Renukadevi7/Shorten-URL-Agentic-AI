@@ -36,8 +36,13 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 		}
 
 		String provided = request.getHeader("X-API-Key");
-		if (provided == null || !provided.equals(apiKey)) {
-			unauthorized(response, "Missing or invalid X-API-Key");
+		if (provided == null || provided.isBlank()) {
+			unauthorized(response, "Missing X-API-Key. Paste the same value as AGENTIC_API_KEY used to start the server.");
+			return;
+		}
+		if (!provided.equals(apiKey)) {
+			unauthorized(response,
+					"Invalid X-API-Key. It must exactly match AGENTIC_API_KEY (clear the UI field and reload if a stale key was saved).");
 			return;
 		}
 		filterChain.doFilter(request, response);
@@ -58,7 +63,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 				|| path.startsWith("/js/"))) {
 			return true;
 		}
-		if ("GET".equalsIgnoreCase(method) && "/api/orchestration/metrics".equals(path)) {
+		if ("GET".equalsIgnoreCase(method)
+				&& ("/api/orchestration/metrics".equals(path) || "/api/config".equals(path))) {
 			return true;
 		}
 		return "GET".equalsIgnoreCase(method) && !path.startsWith("/api/") && path.length() > 1

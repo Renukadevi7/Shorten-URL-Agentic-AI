@@ -13,7 +13,17 @@ const PRESETS = {
 
 let currentRunId = null;
 
-apiKeyEl.value = sessionStorage.getItem("agenticApiKey") || "";
+// Prefer server-injected bootstrap (same value the filter uses) over a stale session key.
+const bootstrapKey = (apiKeyEl.dataset.bootstrap || "").trim();
+const savedKey = (sessionStorage.getItem("agenticApiKey") || "").trim();
+apiKeyEl.value = bootstrapKey || savedKey;
+if (bootstrapKey) {
+  sessionStorage.setItem("agenticApiKey", bootstrapKey);
+}
+if (apiKeyEl.dataset.configured === "false") {
+  statusEl.textContent = "no API key on server";
+}
+
 apiKeyEl.addEventListener("change", () => {
   sessionStorage.setItem("agenticApiKey", apiKeyEl.value.trim());
 });
