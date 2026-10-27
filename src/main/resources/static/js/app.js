@@ -55,11 +55,19 @@ async function refreshMetrics() {
   }
   const res = await fetch("/api/orchestration/metrics", { headers: headers(false) });
   if (!res.ok) {
-    const hint = res.status === 429
-      ? "Rate limit exceeded — wait ~1 minute or raise AGENTIC_RATE_LIMIT, then refresh."
-      : res.status === 401
-        ? "Unauthorized — API key must match AGENTIC_API_KEY."
-        : `Metrics unavailable (${res.status}).`;
+    let hint;
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("Retry-After");
+      hint = retryAfter
+        ? `Rate limit reached, retry in ${retryAfter}s.`
+        : "Rate limit reached, retry in a minute.";
+    }
+    else if (res.status === 401) {
+      hint = "Check API key.";
+    }
+    else {
+      hint = `Metrics unavailable (${res.status}).`;
+    }
     metricsView.innerHTML = `<div class="small" style="color:#b91c1c">${hint}</div>`;
     return;
   }
@@ -160,9 +168,19 @@ async function post(url, body) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    let msg = data.message || data.error || res.statusText;
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("Retry-After");
+      msg = retryAfter
+        ? `Rate limit reached, retry in ${retryAfter}s.`
+        : "Rate limit reached, retry in a minute.";
+    }
+    else if (res.status === 401) {
+      msg = "Check API key.";
+    }
     runView.insertAdjacentHTML(
       "afterbegin",
-      `<div class="small" style="color:#b91c1c">${escapeHtml(data.message || data.error || res.statusText)}</div>`
+      `<div class="small" style="color:#b91c1c">${escapeHtml(msg)}</div>`
     );
     return null;
   }

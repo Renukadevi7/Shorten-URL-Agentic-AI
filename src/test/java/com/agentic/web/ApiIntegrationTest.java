@@ -110,7 +110,9 @@ class ApiIntegrationTest {
 					.andExpect(status().isOk());
 		}
 		mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", KEY))
-				.andExpect(status().isTooManyRequests());
+				.andExpect(status().isTooManyRequests())
+				.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+						.string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")));
 	}
 
 	@Test
@@ -121,7 +123,21 @@ class ApiIntegrationTest {
 		for (int i = 0; i < 5; i++) {
 			mockMvc.perform(get("/api/orchestration/runs")).andExpect(status().isUnauthorized());
 		}
-		mockMvc.perform(get("/api/orchestration/runs")).andExpect(status().isTooManyRequests());
+		mockMvc.perform(get("/api/orchestration/runs")).andExpect(status().isTooManyRequests())
+				.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+						.exists("Retry-After"));
+	}
+
+	@Test
+	void rateLimitKeysOnClientAddressNotSpoofableApiKey() throws Exception {
+		rateLimitFilter.resetWindows();
+		for (int i = 0; i < 5; i++) {
+			mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", "fake-key-" + i))
+					.andExpect(status().isUnauthorized());
+		}
+		// Rotating fake keys must not open a new bucket — same remote addr still 429s.
+		mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", "another-fake"))
+				.andExpect(status().isTooManyRequests());
 	}
 
 	@Test
