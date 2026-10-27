@@ -195,13 +195,27 @@ function escapeHtml(v) {
 }
 
 document.getElementById("start").addEventListener("click", async () => {
-  const data = await post("/api/orchestration/runs", {
-    scenario: scenarioEl.value,
-    requirement: requirementEl.value,
-  });
-  if (data) {
-    renderRun(data);
-    refreshMetrics();
+  const startBtn = document.getElementById("start");
+  startBtn.disabled = true;
+  statusEl.textContent = "STARTING";
+  runView.innerHTML = `<div class="small">Starting… ChangeAgent is drafting/compiling/testing
+    (usually a few seconds; first JVM fork can be slower). Live run updates when the first
+    approval gate is reached.</div>`;
+  try {
+    const data = await post("/api/orchestration/runs", {
+      scenario: scenarioEl.value,
+      requirement: requirementEl.value,
+    });
+    if (data) {
+      renderRun(data);
+      refreshMetrics();
+    }
+    else {
+      statusEl.textContent = "IDLE";
+    }
+  }
+  finally {
+    startBtn.disabled = false;
   }
 });
 

@@ -1,6 +1,7 @@
 package com.agentic.orchestration.agent;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -8,8 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -296,7 +299,8 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		try {
 			Path out = workspace.resolve("classes");
 			Files.createDirectories(out);
-			String cp = System.getProperty("java.class.path");
+			// Lean CP only — full spring-boot classpath makes javac/fork take minutes on Windows.
+			String cp = leanClasspath(out);
 			ProcessBuilder pb = new ProcessBuilder("javac", "-cp", cp, "-d", out.toString(), file.toString());
 			pb.redirectErrorStream(true);
 			Process p = pb.start();
@@ -317,8 +321,7 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		try {
 			String javaHome = System.getProperty("java.home");
 			String javaBin = Path.of(javaHome, "bin", "java").toString();
-			String cp = classesDir.toAbsolutePath() + System.getProperty("path.separator")
-					+ System.getProperty("java.class.path");
+			String cp = leanClasspath(classesDir);
 			ProcessBuilder pb = new ProcessBuilder(
 					javaBin,
 					"-cp", cp,
@@ -338,6 +341,47 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		catch (Exception ex) {
 			return false;
 		}
+	}
+
+	/**
+	 * Minimal classpath for draft javac / probe forks: generated classes + app classes that
+	 * define {@link AliasRules} / {@link AliasRulesIsolatedProbe}. Avoids the multi‑thousand‑entry
+	 * Spring Boot runtime classpath that made Start orchestration stall for minutes.
+	 */
+	static String leanClasspath(Path generatedClasses) {
+		String sep = System.getProperty("path.separator");
+		Set<String> entries = new LinkedHashSet<>();
+		if (generatedClasses != null) {
+			entries.add(generatedClasses.toAbsolutePath().toString());
+		}
+		Path targetClasses = Path.of("target", "classes");
+		if (Files.isDirectory(targetClasses)) {
+			entries.add(targetClasses.toAbsolutePath().toString());
+		}
+		for (Class<?> type : List.of(AliasRules.class, AliasRulesIsolatedProbe.class)) {
+			try {
+				var cs = type.getProtectionDomain().getCodeSource();
+				if (cs == null || cs.getLocation() == null) {
+					continue;
+				}
+				URI uri = cs.getLocation().toURI();
+				entries.add(Path.of(uri).toAbsolutePath().toString());
+			}
+			catch (Exception ignored) {
+				// fall through; target/classes usually covers spring-boot:run
+			}
+		}
+		if (entries.size() <= 1) {
+			// Last resort: filtered runtime CP (still avoid dumping every Spring jar when possible).
+			String full = System.getProperty("java.class.path", "");
+			for (String part : full.split(sep)) {
+				String p = part.toLowerCase();
+				if (p.contains("agentic") || p.contains("target\\classes") || p.contains("target/classes")) {
+					entries.add(part);
+				}
+			}
+		}
+		return String.join(sep, entries);
 	}
 
 	private void installGeneratedRules(Path classesDir) {
