@@ -49,7 +49,15 @@ scenarioEl.addEventListener("change", () => {
 });
 
 async function refreshMetrics() {
-  const res = await fetch("/api/orchestration/metrics");
+  if (!apiKey()) {
+    metricsView.innerHTML = `<div class="small">Paste API key to load reliability metrics.</div>`;
+    return;
+  }
+  const res = await fetch("/api/orchestration/metrics", { headers: headers(false) });
+  if (!res.ok) {
+    metricsView.innerHTML = `<div class="small" style="color:#b91c1c">Metrics unavailable (${res.status}). Check API key.</div>`;
+    return;
+  }
   const data = await res.json();
   const m = data.reliability || {};
   metricsView.innerHTML = [
@@ -62,6 +70,8 @@ async function refreshMetrics() {
     .map(([k, v]) => `<div class="metric"><b>${v}</b><span>${k}</span></div>`)
     .join("");
 }
+
+apiKeyEl.addEventListener("change", () => refreshMetrics());
 
 function renderRun(run) {
   currentRunId = run.id;
