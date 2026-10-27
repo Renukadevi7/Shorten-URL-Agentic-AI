@@ -7,7 +7,7 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * Entry/exit gates that validate dependency and stage *outputs*, not only status flags.
+ * Entry/exit gates driven by stage metadata (required context/artifacts), not hard-coded stage ids.
  */
 @Component
 public class GatePolicy {
@@ -26,24 +26,16 @@ public class GatePolicy {
 				violations.add("Missing dependency stage: " + depId);
 				continue;
 			}
-			if (dep.status() != StageStatus.SUCCEEDED && dep.status() != StageStatus.SKIPPED) {
-				violations.add("Dependency not succeeded: " + depId + " status=" + dep.status());
+			if (!dependencySatisfied(run, dep)) {
+				violations.add("Dependency not satisfied: " + depId + " status=" + dep.status());
 				continue;
 			}
-			violations.addAll(validateDependencyOutput(dep, stage));
+			violations.addAll(validateDependencyArtifacts(dep));
 		}
-
-		if (stage.type() == StageType.IMPLEMENTATION
-				&& !Boolean.TRUE.equals(run.context().get("architectureReady"))) {
-			violations.add("Architecture output missing: architectureReady != true");
-		}
-		if (stage.type() == StageType.RELEASE_READINESS
-				&& !Boolean.TRUE.equals(run.context().get("testsPassed"))) {
-			violations.add("Cannot enter release: testsPassed != true");
-		}
-		if (stage.type() == StageType.RELEASE_READINESS
-				&& !Boolean.TRUE.equals(run.context().get("docsReady"))) {
-			violations.add("Cannot enter release: docsReady != true");
+		for (String key : stage.requiredEntryContext()) {
+			if (!Boolean.TRUE.equals(run.context().get(key))) {
+				violations.add("Entry context missing/false: " + key);
+			}
 		}
 		return violations;
 	}
@@ -53,77 +45,56 @@ public class GatePolicy {
 		if (stage.output() == null || stage.output().isBlank()) {
 			violations.add("Stage produced empty output");
 		}
-		switch (stage.type()) {
-			case REQUIREMENTS -> {
-				if (run.normalizedProblem() == null || run.normalizedProblem().isBlank()) {
-					violations.add("Requirements exit requires normalizedProblem");
-				}
+		for (String key : stage.requiredExitContext()) {
+			if (!Boolean.TRUE.equals(run.context().get(key))) {
+				violations.add("Exit context missing/false: " + key);
 			}
-			case ARCHITECTURE -> {
-				if (!stage.artifacts().containsKey("architecture")) {
-					violations.add("Architecture artifact missing");
-				}
-				if (!Boolean.TRUE.equals(run.context().get("architectureReady"))) {
-					violations.add("architectureReady context flag missing");
-				}
+		}
+		for (String key : stage.requiredExitArtifacts()) {
+			if (!stage.artifacts().containsKey(key)) {
+				violations.add("Exit artifact missing: " + key);
 			}
-			case IMPLEMENTATION -> {
-				if (!Boolean.TRUE.equals(run.context().get("implementationDone"))) {
-					violations.add("implementationDone context flag missing");
-				}
-				if (run.context().get("productSnapshotBeforeImpl") == null) {
-					violations.add("Rollback snapshot was not captured before implementation");
-				}
-			}
-			case TESTING, TESTING_FALLBACK -> {
-				if (!Boolean.TRUE.equals(run.context().get("testsPassed"))) {
-					violations.add("testsPassed must be true to exit testing");
-				}
-				if (!stage.artifacts().containsKey("testReport")) {
-					violations.add("testReport artifact missing");
-				}
-				if (!Boolean.TRUE.equals(stage.artifacts().get("passed"))
-						&& !Boolean.TRUE.equals(stage.artifacts().get("testPassed"))) {
-					violations.add("testing artifact must record passed=true");
-				}
-			}
-			case DOCUMENTATION -> {
-				if (!Boolean.TRUE.equals(run.context().get("docsReady"))) {
-					violations.add("docsReady context flag missing");
-				}
-			}
-			case RELEASE_READINESS -> violations.addAll(policyGuardrail.validateRelease(run));
-			case CLARIFICATION, REPLAN -> {
-				if (!stage.artifacts().containsKey("replanReason") && !stage.artifacts().containsKey("clarifiedRequirement")) {
-					violations.add("Replan/clarification artifact missing");
-				}
-			}
-			default -> {
+		}
+		if (stage.completesRun()) {
+			violations.addAll(policyGuardrail.validateRelease(run));
+		}
+		// Generic pass marker when stage declares a "passed" artifact requirement.
+		if (stage.requiredExitArtifacts().contains("passed") || stage.requiredExitArtifacts().contains("testPassed")) {
+			if (!Boolean.TRUE.equals(stage.artifacts().get("passed"))
+					&& !Boolean.TRUE.equals(stage.artifacts().get("testPassed"))) {
+				violations.add("Stage must record passed=true");
 			}
 		}
 		return violations;
 	}
 
-	private List<String> validateDependencyOutput(StageNode dep, StageNode consumer) {
+	private boolean dependencySatisfied(OrchestrationRun run, StageNode dep) {
+		if (dep.status() == StageStatus.SUCCEEDED || dep.status() == StageStatus.SKIPPED) {
+			return true;
+		}
+		// Fallback acceptance is recorded generically as acceptedFallback_<stageId>
+		return Boolean.TRUE.equals(run.context().get("acceptedFallback_" + dep.id()));
+	}
+
+	private List<String> validateDependencyArtifacts(StageNode dep) {
 		List<String> violations = new ArrayList<>();
-		if (dep.type() == StageType.TESTING && consumer.type() == StageType.RELEASE_READINESS) {
-			// Primary test may be SKIPPED after a successful fallback path.
-			if (dep.status() == StageStatus.SKIPPED) {
-				return violations;
-			}
-			Object passed = dep.artifacts().get("passed");
-			if (!Boolean.TRUE.equals(passed) && !Boolean.TRUE.equals(dep.artifacts().get("testPassed"))) {
-				// also accept context-driven runs where artifact uses testReport only
-				if (!String.valueOf(dep.output()).toLowerCase().contains("passed")) {
-					violations.add("Testing dependency output does not confirm pass");
+		if (dep.status() == StageStatus.SKIPPED) {
+			return violations;
+		}
+		for (String key : dep.requiredExitArtifacts()) {
+			if (!dep.artifacts().containsKey(key)
+					&& !(key.equals("passed") && Boolean.TRUE.equals(dep.artifacts().get("testPassed")))
+					&& !(key.equals("testPassed") && Boolean.TRUE.equals(dep.artifacts().get("passed")))) {
+				// Soft check: dependency should have produced declared exit artifacts when succeeded
+				if (dep.status() == StageStatus.SUCCEEDED && dep.artifacts().isEmpty()) {
+					violations.add("Dependency " + dep.id() + " missing expected artifact " + key);
 				}
 			}
 		}
-		if (dep.type() == StageType.ARCHITECTURE && consumer.type() == StageType.IMPLEMENTATION) {
-			Object arch = dep.artifacts().get("architecture");
-			if (!(arch instanceof Map<?, ?> map) || map.isEmpty()) {
-				violations.add("Architecture dependency missing architecture artifact map");
-			}
+		Object arch = dep.artifacts().get("architecture");
+		if (dep.requiredExitArtifacts().contains("architecture")
+				&& (!(arch instanceof Map<?, ?> map) || map.isEmpty())) {
+			violations.add("Dependency " + dep.id() + " missing architecture artifact map");
 		}
 		return violations;
 	}

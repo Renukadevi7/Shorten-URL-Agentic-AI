@@ -15,8 +15,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
 	private final String apiKey;
 
-	public ApiKeyAuthFilter(@Value("${agentic.api-key}") String apiKey) {
-		this.apiKey = apiKey;
+	public ApiKeyAuthFilter(@Value("${agentic.api-key:}") String apiKey) {
+		this.apiKey = apiKey == null ? "" : apiKey.trim();
 	}
 
 	@Override
@@ -30,15 +30,24 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 			return;
 		}
 
+		if (apiKey.isBlank()) {
+			unauthorized(response, "API key not configured. Set AGENTIC_API_KEY (or application-local.properties).");
+			return;
+		}
+
 		String provided = request.getHeader("X-API-Key");
 		if (provided == null || !provided.equals(apiKey)) {
-			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-			response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-			response.getOutputStream().write(
-					"{\"error\":\"Missing or invalid X-API-Key\"}".getBytes(StandardCharsets.UTF_8));
+			unauthorized(response, "Missing or invalid X-API-Key");
 			return;
 		}
 		filterChain.doFilter(request, response);
+	}
+
+	private static void unauthorized(HttpServletResponse response, String message) throws IOException {
+		response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+		String body = "{\"error\":\"" + message.replace("\"", "'") + "\"}";
+		response.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private boolean isPublic(String path, String method) {
@@ -46,14 +55,13 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 			return true;
 		}
 		if ("GET".equalsIgnoreCase(method) && ("/".equals(path) || path.startsWith("/css/")
-				|| path.startsWith("/js/") || path.startsWith("/h2-console"))) {
+				|| path.startsWith("/js/"))) {
 			return true;
 		}
 		if ("GET".equalsIgnoreCase(method) && "/api/orchestration/metrics".equals(path)) {
 			return true;
 		}
-		// Public redirect GET /{code} — not under /api
 		return "GET".equalsIgnoreCase(method) && !path.startsWith("/api/") && path.length() > 1
-				&& !path.startsWith("/css") && !path.startsWith("/js") && !path.startsWith("/h2");
+				&& !path.startsWith("/css") && !path.startsWith("/js");
 	}
 }

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
   <!-- cache-bust so browsers/local Spring static cache pick up UI updates -->
-  <link rel="stylesheet" href="/css/app.css?v=20261026d"/>
+  <link rel="stylesheet" href="/css/app.css?v=20261027a"/>
 </head>
 <body>
   <div class="bg" aria-hidden="true">
@@ -30,7 +30,9 @@
     <section class="grid">
       <div class="card">
         <h2>Start a scenario</h2>
-        <div class="chips">
+        <label for="apiKey">API key (from AGENTIC_API_KEY; stored only in this browser session)</label>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="Paste local API key"/>
+        <div class="chips" style="margin-top:0.75rem">
           <button type="button" class="chip active" data-scenario="greenfield">Greenfield</button>
           <button type="button" class="chip" data-scenario="brownfield">Brownfield</button>
           <button type="button" class="chip" data-scenario="ambiguous">Ambiguous</button>
@@ -47,7 +49,7 @@
           <button id="start" type="button">Start orchestration</button>
         </div>
         <p class="small" style="margin-top:0.75rem">
-          Mutating APIs require header <code>X-API-Key: demo-api-key-change-me</code>.
+          Mutating APIs require header <code>X-API-Key</code> matching server env <code>AGENTIC_API_KEY</code>.
           Product: <code>POST /api/urls</code>, <code>DELETE /api/urls/{code}</code>,
           <code>GET /{code}</code>, <code>GET /api/urls/{code}/stats</code>.
           Demo controls: inject <code>FAIL_TESTING</code> or mutate upstream to force re-plan.
@@ -67,6 +69,6 @@
       </div>
     </section>
   </main>
-  <script src="/js/app.js?v=20261026d"></script>
+  <script src="/js/app.js?v=20261027a"></script>
 </body>
 </html>

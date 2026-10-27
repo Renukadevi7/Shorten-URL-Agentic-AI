@@ -14,13 +14,24 @@ public class StageNode {
 	private final boolean requiresHumanApproval;
 	private final int maxRetries;
 	private final String fallbackStageId;
+	/** When true, stage stays out of ready-set until explicitly activated (e.g. fallback). */
+	private final boolean activationOnly;
+	/** Context keys that must be true/present before entry. */
+	private final List<String> requiredEntryContext;
+	/** Context keys that must be true after exit. */
+	private final List<String> requiredExitContext;
+	/** Artifact keys that must exist after exit. */
+	private final List<String> requiredExitArtifacts;
+	/** Approving this stage completes the run (after policy checks). */
+	private final boolean completesRun;
 	private StageStatus status = StageStatus.BLOCKED;
 	private int attempts;
 	private String output;
 	private final Map<String, Object> artifacts = new LinkedHashMap<>();
 
 	public StageNode(String id, StageType type, String title, List<String> dependsOn, boolean requiresHumanApproval,
-			int maxRetries, String fallbackStageId) {
+			int maxRetries, String fallbackStageId, boolean activationOnly, List<String> requiredEntryContext,
+			List<String> requiredExitContext, List<String> requiredExitArtifacts, boolean completesRun) {
 		this.id = id;
 		this.type = type;
 		this.title = title;
@@ -28,6 +39,11 @@ public class StageNode {
 		this.requiresHumanApproval = requiresHumanApproval;
 		this.maxRetries = maxRetries;
 		this.fallbackStageId = fallbackStageId;
+		this.activationOnly = activationOnly;
+		this.requiredEntryContext = List.copyOf(requiredEntryContext);
+		this.requiredExitContext = List.copyOf(requiredExitContext);
+		this.requiredExitArtifacts = List.copyOf(requiredExitArtifacts);
+		this.completesRun = completesRun;
 	}
 
 	public String id() {
@@ -56,6 +72,26 @@ public class StageNode {
 
 	public String fallbackStageId() {
 		return fallbackStageId;
+	}
+
+	public boolean activationOnly() {
+		return activationOnly;
+	}
+
+	public List<String> requiredEntryContext() {
+		return requiredEntryContext;
+	}
+
+	public List<String> requiredExitContext() {
+		return requiredExitContext;
+	}
+
+	public List<String> requiredExitArtifacts() {
+		return requiredExitArtifacts;
+	}
+
+	public boolean completesRun() {
+		return completesRun;
 	}
 
 	public StageStatus status() {
@@ -97,7 +133,12 @@ public class StageNode {
 		map.put("title", title);
 		map.put("dependsOn", dependsOn);
 		map.put("fallbackStageId", fallbackStageId);
+		map.put("activationOnly", activationOnly);
 		map.put("requiresHumanApproval", requiresHumanApproval);
+		map.put("completesRun", completesRun);
+		map.put("requiredEntryContext", requiredEntryContext);
+		map.put("requiredExitContext", requiredExitContext);
+		map.put("requiredExitArtifacts", requiredExitArtifacts);
 		map.put("maxRetries", maxRetries);
 		map.put("status", status.name());
 		map.put("attempts", attempts);
@@ -106,12 +147,88 @@ public class StageNode {
 		return map;
 	}
 
-	public static StageNode of(String id, StageType type, String title, List<String> deps, boolean approval,
-			String fallback) {
-		return new StageNode(id, type, title, deps == null ? List.of() : new ArrayList<>(deps), approval, 2, fallback);
+	public StageNode withDependsOn(List<String> deps) {
+		StageNode copy = new StageNode(id, type, title, deps, requiresHumanApproval, maxRetries, fallbackStageId,
+				activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, completesRun);
+		copy.status = this.status;
+		copy.attempts = this.attempts;
+		copy.output = this.output;
+		copy.artifacts.putAll(this.artifacts);
+		return copy;
 	}
 
-	public static StageNode of(String id, StageType type, String title, List<String> deps, boolean approval) {
-		return of(id, type, title, deps, approval, null);
+	public static Builder builder(String id, StageType type, String title) {
+		return new Builder(id, type, title);
+	}
+
+	public static final class Builder {
+		private final String id;
+		private final StageType type;
+		private final String title;
+		private List<String> dependsOn = List.of();
+		private boolean requiresHumanApproval;
+		private int maxRetries = 2;
+		private String fallbackStageId;
+		private boolean activationOnly;
+		private List<String> requiredEntryContext = List.of();
+		private List<String> requiredExitContext = List.of();
+		private List<String> requiredExitArtifacts = List.of();
+		private boolean completesRun;
+
+		private Builder(String id, StageType type, String title) {
+			this.id = id;
+			this.type = type;
+			this.title = title;
+		}
+
+		public Builder dependsOn(String... deps) {
+			this.dependsOn = List.of(deps);
+			return this;
+		}
+
+		public Builder dependsOn(List<String> deps) {
+			this.dependsOn = deps == null ? List.of() : new ArrayList<>(deps);
+			return this;
+		}
+
+		public Builder approval(boolean value) {
+			this.requiresHumanApproval = value;
+			return this;
+		}
+
+		public Builder fallback(String stageId) {
+			this.fallbackStageId = stageId;
+			return this;
+		}
+
+		public Builder activationOnly() {
+			this.activationOnly = true;
+			return this;
+		}
+
+		public Builder entryContext(String... keys) {
+			this.requiredEntryContext = List.of(keys);
+			return this;
+		}
+
+		public Builder exitContext(String... keys) {
+			this.requiredExitContext = List.of(keys);
+			return this;
+		}
+
+		public Builder exitArtifacts(String... keys) {
+			this.requiredExitArtifacts = List.of(keys);
+			return this;
+		}
+
+		public Builder completesRun() {
+			this.completesRun = true;
+			return this;
+		}
+
+		public StageNode build() {
+			return new StageNode(id, type, title, dependsOn, requiresHumanApproval, maxRetries, fallbackStageId,
+					activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, completesRun);
+		}
 	}
 }

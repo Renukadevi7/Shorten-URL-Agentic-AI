@@ -1,38 +1,53 @@
 package com.agentic.orchestration;
 
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
-import com.agentic.shortener.ProductSnapshot;
+import com.agentic.orchestration.agent.ChangeAgent;
+import com.agentic.orchestration.agent.ChangeArtifact;
 import com.agentic.shortener.ShortUrl;
 import com.agentic.shortener.UrlShortenerService;
 
+/**
+ * Dispatches stage work through a handler registry (no hard-coded stage-id special cases).
+ * Implementation uses a pluggable {@link ChangeAgent} (produce → apply → validate).
+ */
 @Component
 public class StageExecutor {
 
 	private final UrlShortenerService shortener;
-	private final PolicyGuardrail policyGuardrail;
+	private final ChangeAgent changeAgent;
+	private final Map<StageType, StageHandler> handlers = new EnumMap<>(StageType.class);
 
-	public StageExecutor(UrlShortenerService shortener, PolicyGuardrail policyGuardrail) {
+	public StageExecutor(UrlShortenerService shortener, ChangeAgent changeAgent) {
 		this.shortener = shortener;
-		this.policyGuardrail = policyGuardrail;
+		this.changeAgent = changeAgent;
+		register(StageType.REQUIREMENTS, this::requirements);
+		register(StageType.CLARIFICATION, this::replan);
+		register(StageType.REPLAN, this::replan);
+		register(StageType.ARCHITECTURE, this::architecture);
+		register(StageType.IMPLEMENTATION, this::implementation);
+		register(StageType.TESTING, (run, stage) -> testing(run, stage, false));
+		register(StageType.TESTING_FALLBACK, (run, stage) -> testing(run, stage, true));
+		register(StageType.DOCUMENTATION, this::documentation);
+		register(StageType.RELEASE_READINESS, this::release);
+	}
+
+	private void register(StageType type, StageHandler handler) {
+		handlers.put(type, handler);
 	}
 
 	public void execute(OrchestrationRun run, StageNode stage) {
 		maybeInjectFault(run, stage);
-		switch (stage.type()) {
-			case REQUIREMENTS -> requirements(run, stage);
-			case CLARIFICATION, REPLAN -> replan(run, stage);
-			case ARCHITECTURE -> architecture(run, stage);
-			case IMPLEMENTATION -> implementation(run, stage);
-			case TESTING -> testing(run, stage, false);
-			case TESTING_FALLBACK -> testing(run, stage, true);
-			case DOCUMENTATION -> documentation(run, stage);
-			case RELEASE_READINESS -> release(run, stage);
+		StageHandler handler = handlers.get(stage.type());
+		if (handler == null) {
+			throw new IllegalStateException("No handler registered for stage type " + stage.type());
 		}
+		handler.execute(run, stage);
 		carryDecision(run, stage);
 	}
 
@@ -101,56 +116,33 @@ public class StageExecutor {
 	private void architecture(OrchestrationRun run, StageNode stage) {
 		Map<String, Object> design = new LinkedHashMap<>();
 		design.put("components", List.of("OrchestratorService", "StageGraph", "GatePolicy", "AuditLog",
-				"UrlShortenerService", "ApiKeyAuthFilter", "RateLimitFilter"));
+				"ChangeAgent", "UrlShortenerService", "ApiKeyAuthFilter", "RateLimitFilter"));
 		design.put("apis", List.of("POST /api/urls", "GET /{code}", "DELETE /api/urls/{code}",
 				"GET /api/urls/{code}/stats"));
 		design.put("storage", "H2 file persistence via Spring Data JPA");
-		design.put("orchestration", "DAG with concurrent ready-set + sync barrier, validating gates, fallback edges");
-		design.put("impactedDataFlows", Map.of(
-				"create", "client → API key → rate-limit → JPA",
-				"redirect", "client → public GET → expiry/delete checks → optional click count",
-				"orchestration", "UI/API → OrchestratorService → stage agents → product mutations"));
+		design.put("orchestration", "DAG with concurrent ready-set + sync barrier, metadata gates, fallback edges");
+		design.put("changeAgent", "produce → apply → validate");
 		design.put("version", run.context().getOrDefault("requirementVersion", 1));
 		stage.artifacts().put("architecture", design);
-		stage.setOutput("Architecture drafted with brownfield impact and orchestration control plane.");
+		stage.setOutput("Architecture drafted with orchestration control plane and ChangeAgent contract.");
 		run.context().put("architectureReady", true);
 		run.context().put("architectureVersion", design.get("version"));
 		run.audit(stage.id(), "DESIGN", stage.output(), design);
 	}
 
 	private void implementation(OrchestrationRun run, StageNode stage) {
-		ProductSnapshot before = shortener.snapshot();
-		run.context().put("productSnapshotBeforeImpl", before.asMap());
+		ChangeArtifact artifact = changeAgent.produce(run);
+		run.audit(stage.id(), "AGENT_PRODUCE", artifact.summary(), artifact.asMap());
+		changeAgent.apply(run, artifact);
+		run.audit(stage.id(), "AGENT_APPLY", "Applied change " + artifact.changeId(),
+				Map.of("changeId", artifact.changeId(), "filesTouched", artifact.filesTouched()));
+		changeAgent.validate(run, artifact);
+		run.audit(stage.id(), "AGENT_VALIDATE", "Validated change " + artifact.changeId(), artifact.validationPlan());
 
-		if ("greenfield".equals(run.scenario()) || "ambiguous".equals(run.scenario())
-				|| Boolean.TRUE.equals(run.context().get("replanApplied"))) {
-			shortener.resetProduct();
-			ShortUrl sample = shortener.shorten("https://example.com/agentic-demo", "demoalias", 86400L);
-			run.context().put("sampleCode", sample.code());
-			run.context().put("sampleUrl", sample.longUrl());
-			stage.artifacts().put("implemented", "Create/redirect/expiry/alias APIs active on H2");
-			stage.artifacts().put("sampleCode", sample.code());
-		}
-		if ("brownfield".equals(run.scenario()) || run.requirement().toLowerCase().contains("analytics")) {
-			if (shortener.featureFlags().get("urlCount").equals(0L)
-					|| ((Number) shortener.featureFlags().get("urlCount")).longValue() == 0L) {
-				ShortUrl sample = shortener.shorten("https://example.com/brownfield", null, 3600L);
-				run.context().put("sampleCode", sample.code());
-				run.context().put("sampleUrl", sample.longUrl());
-			}
-			shortener.enableAnalytics();
-			shortener.enableReliability();
-			stage.artifacts().put("brownfield", "Analytics + reliability enabled on persistent store");
-			stage.artifacts().put("impactedModules",
-					List.of("UrlShortenerService", "ShortUrlEntity", "UrlController"));
-		}
-		List<String> urlPolicy = policyGuardrail.validateUrlMutation(
-				String.valueOf(run.context().get("sampleUrl")),
-				String.valueOf(run.context().get("sampleCode")));
-		if (!urlPolicy.isEmpty()) {
-			throw new IllegalStateException("Policy blocked implementation outputs: " + String.join("; ", urlPolicy));
-		}
-		stage.setOutput("Implementation artifacts applied with pre-change snapshot captured.");
+		stage.artifacts().put("changeArtifact", artifact.asMap());
+		stage.artifacts().put("agentValidation", Map.of("changeId", artifact.changeId(), "status", "PASSED"));
+		stage.artifacts().put("sampleCode", run.context().get("sampleCode"));
+		stage.setOutput("ChangeAgent produced/applied/validated change " + artifact.changeId());
 		run.context().put("implementationDone", true);
 		run.audit(stage.id(), "IMPLEMENT", stage.output(), new LinkedHashMap<>(stage.artifacts()));
 	}
@@ -200,11 +192,10 @@ public class StageExecutor {
 	}
 
 	private void documentation(OrchestrationRun run, StageNode stage) {
-		// simulate parallel work duration so concurrent execution is observable
 		sleep(120);
 		String doc = """
 				# URL Shortener API
-				- POST /api/urls {"url","customAlias","ttlSeconds"} (requires X-API-Key)
+				- POST /api/urls {"url","customAlias","ttlSeconds"} (requires X-API-Key from env)
 				- GET /{code} public redirect (respects expiry/delete)
 				- DELETE /api/urls/{code} (requires X-API-Key)
 				- GET /api/urls/{code}/stats (requires X-API-Key)
@@ -223,8 +214,9 @@ public class StageExecutor {
 		checklist.put("analyticsEnabled", shortener.isAnalyticsEnabled());
 		checklist.put("reliabilityEnabled", shortener.isReliabilityEnabled());
 		checklist.put("sampleCode", run.context().get("sampleCode"));
+		checklist.put("changeArtifact", run.context().get("changeArtifact"));
 		checklist.put("persistentStorage", "H2");
-		checklist.put("auth", "X-API-Key");
+		checklist.put("auth", "X-API-Key via AGENTIC_API_KEY");
 		stage.artifacts().put("releaseChecklist", checklist);
 		stage.setOutput("Release readiness checklist prepared.");
 		run.audit(stage.id(), "RELEASE_READY", stage.output(), checklist);

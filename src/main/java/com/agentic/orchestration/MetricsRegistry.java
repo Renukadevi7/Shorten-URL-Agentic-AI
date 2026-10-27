@@ -28,10 +28,15 @@ public class MetricsRegistry {
 		totalLatencyMs.addAndGet(latencyMs);
 	}
 
-	public void onFail(long latencyMs, long mttrMs) {
+	/** Record a failed/stopped run latency only — MTTR is recorded separately on recovery. */
+	public void onFail(long latencyMs) {
 		failed.incrementAndGet();
 		totalLatencyMs.addAndGet(latencyMs);
-		if (mttrMs > 0) {
+	}
+
+	/** MTTR sample: elapsed time from first failure to successful recovery. */
+	public void onRecovery(long mttrMs) {
+		if (mttrMs >= 0) {
 			totalMttrMs.addAndGet(mttrMs);
 			mttrSamples.incrementAndGet();
 		}
@@ -59,6 +64,7 @@ public class MetricsRegistry {
 		map.put("rollbackCount", rollbacks.get());
 		map.put("avgEndToEndLatencyMs", avgLatency);
 		map.put("avgMttrMs", avgMttr);
+		map.put("mttrSamples", mttrSamples.get());
 		return map;
 	}
 }

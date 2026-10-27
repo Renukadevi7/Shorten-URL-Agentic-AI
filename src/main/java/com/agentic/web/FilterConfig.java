@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 public class FilterConfig {
 
 	@Bean
-	ApiKeyAuthFilter apiKeyAuthFilter(@Value("${agentic.api-key}") String apiKey) {
+	ApiKeyAuthFilter apiKeyAuthFilter(@Value("${agentic.api-key:}") String apiKey) {
 		return new ApiKeyAuthFilter(apiKey);
 	}
 

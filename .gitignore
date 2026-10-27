@@ -36,5 +36,8 @@ build/
 /data/
 *.bundle
 target/
+application-local.properties
+.env
+*.log
 
 /agent-tools/

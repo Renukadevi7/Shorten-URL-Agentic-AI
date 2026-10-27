@@ -1,0 +1,3 @@
+# Copy to application-local.properties (gitignored) or export env vars.
+agentic.api-key=replace-with-your-local-secret
+agentic.rate-limit.requests-per-minute=60

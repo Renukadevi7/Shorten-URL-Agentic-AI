@@ -8,6 +8,7 @@ The system coordinates requirements → architecture → implementation → test
 
 - JDK 17+
 - Maven Wrapper included (`./mvnw` / `mvnw.cmd`)
+- An API key supplied via environment (not committed)
 
 ## Installation & run
 
@@ -15,24 +16,26 @@ The system coordinates requirements → architecture → implementation → test
 git clone <repository-url>
 cd <repository-directory>
 
-# Ensure JAVA_HOME points at a JDK 17+ installation
+export AGENTIC_API_KEY=your-local-secret
 java -version
-
 ./mvnw clean spring-boot:run
 ```
 
-On Windows (Command Prompt / PowerShell):
+On Windows (PowerShell):
 
-```bat
-mvnw.cmd clean spring-boot:run
+```powershell
+$env:AGENTIC_API_KEY="your-local-secret"
+.\mvnw.cmd clean spring-boot:run
 ```
 
-Open [http://127.0.0.1:43127](http://127.0.0.1:43127)
+Optional local override file (gitignored): copy `application-local.properties.example` to `application-local.properties`.
+
+Open [http://127.0.0.1:43127](http://127.0.0.1:43127) and paste the same API key into the UI field.
 
 Mutating APIs require:
 
 ```http
-X-API-Key: demo-api-key-change-me
+X-API-Key: <your AGENTIC_API_KEY value>
 ```
 
 ## Tests

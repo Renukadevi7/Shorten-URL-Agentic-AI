@@ -27,61 +27,99 @@ public class ScenarioFactory {
 		graph.applyTo(run);
 	}
 
-	/**
-	 * Greenfield DAG with parallel Testing ∥ Documentation after Implementation,
-	 * and Testing fallback edge for fault-injection demos.
-	 */
 	private StageGraph greenfield() {
 		StageGraph g = new StageGraph();
-		g.add(StageNode.of("req", StageType.REQUIREMENTS, "Normalize greenfield requirement", List.of(), false));
-		g.add(StageNode.of("arch", StageType.ARCHITECTURE, "Draft architecture", List.of("req"), false));
-		g.add(StageNode.of("impl", StageType.IMPLEMENTATION, "Implement create+redirect+reliability APIs",
-				List.of("arch"), true));
-		g.add(StageNode.of("test", StageType.TESTING, "Validate APIs (primary)", List.of("impl"), false,
-				"test_fallback"));
-		g.add(StageNode.of("test_fallback", StageType.TESTING_FALLBACK, "Fallback reduced test pack",
-				List.of("impl"), false));
-		g.add(StageNode.of("docs", StageType.DOCUMENTATION, "Generate API docs", List.of("impl"), false));
-		g.add(StageNode.of("release", StageType.RELEASE_READINESS, "Release readiness gate",
-				List.of("test", "docs"), true));
+		g.add(req("Normalize greenfield requirement"));
+		g.add(arch("Draft architecture", "req"));
+		g.add(impl("Implement create+redirect+reliability APIs", "arch"));
+		g.add(test("Validate APIs (primary)", "impl", "test_fallback"));
+		g.add(testFallback("Fallback reduced test pack", "impl"));
+		g.add(docs("Generate API docs", "impl"));
+		g.add(release("Release readiness gate", "test", "docs"));
 		return g;
 	}
 
 	private StageGraph brownfield() {
 		StageGraph g = new StageGraph();
-		g.add(StageNode.of("req", StageType.REQUIREMENTS, "Normalize brownfield enhancement", List.of(), false));
-		g.add(StageNode.of("arch", StageType.ARCHITECTURE, "Impact analysis for analytics/reliability",
-				List.of("req"), false));
-		g.add(StageNode.of("impl", StageType.IMPLEMENTATION, "Enable analytics+reliability + persistence checks",
-				List.of("arch"), true));
-		g.add(StageNode.of("test", StageType.TESTING, "Regression + stats validation", List.of("impl"), false,
-				"test_fallback"));
-		g.add(StageNode.of("test_fallback", StageType.TESTING_FALLBACK, "Fallback smoke tests", List.of("impl"),
-				false));
-		g.add(StageNode.of("docs", StageType.DOCUMENTATION, "Update docs for stats/delete/alias", List.of("impl"),
-				false));
-		g.add(StageNode.of("release", StageType.RELEASE_READINESS, "Change-control release gate",
-				List.of("test", "docs"), true));
+		g.add(req("Normalize brownfield enhancement"));
+		g.add(arch("Impact analysis for analytics/reliability", "req"));
+		g.add(impl("Enable analytics+reliability + persistence checks", "arch"));
+		g.add(test("Regression + stats validation", "impl", "test_fallback"));
+		g.add(testFallback("Fallback smoke tests", "impl"));
+		g.add(docs("Update docs for stats/delete/alias", "impl"));
+		g.add(release("Change-control release gate", "test", "docs"));
 		return g;
 	}
 
-	/**
-	 * Ambiguous starts like greenfield; clarification is NOT pre-baked as the replan mechanism.
-	 * Dynamic replan inserts REPLAN when upstream outputs change at runtime.
-	 */
 	private StageGraph ambiguous() {
 		StageGraph g = new StageGraph();
-		g.add(StageNode.of("req", StageType.REQUIREMENTS, "Detect ambiguity in requirement", List.of(), false));
-		g.add(StageNode.of("arch", StageType.ARCHITECTURE, "Architecture for provisional scope", List.of("req"),
-				false));
-		g.add(StageNode.of("impl", StageType.IMPLEMENTATION, "Implement provisional scope", List.of("arch"), true));
-		g.add(StageNode.of("test", StageType.TESTING, "Validate provisional scope", List.of("impl"), false,
-				"test_fallback"));
-		g.add(StageNode.of("test_fallback", StageType.TESTING_FALLBACK, "Fallback smoke tests", List.of("impl"),
-				false));
-		g.add(StageNode.of("docs", StageType.DOCUMENTATION, "Document provisional scope", List.of("impl"), false));
-		g.add(StageNode.of("release", StageType.RELEASE_READINESS, "Release readiness", List.of("test", "docs"),
-				true));
+		g.add(req("Detect ambiguity in requirement"));
+		g.add(arch("Architecture for provisional scope", "req"));
+		g.add(impl("Implement provisional scope", "arch"));
+		g.add(test("Validate provisional scope", "impl", "test_fallback"));
+		g.add(testFallback("Fallback smoke tests", "impl"));
+		g.add(docs("Document provisional scope", "impl"));
+		g.add(release("Release readiness", "test", "docs"));
 		return g;
+	}
+
+	private static StageNode req(String title) {
+		return StageNode.builder("req", StageType.REQUIREMENTS, title)
+				.exitArtifacts("problemStatement", "impactAnalysis")
+				.build();
+	}
+
+	private static StageNode arch(String title, String dep) {
+		return StageNode.builder("arch", StageType.ARCHITECTURE, title)
+				.dependsOn(dep)
+				.exitContext("architectureReady")
+				.exitArtifacts("architecture")
+				.build();
+	}
+
+	private static StageNode impl(String title, String dep) {
+		return StageNode.builder("impl", StageType.IMPLEMENTATION, title)
+				.dependsOn(dep)
+				.approval(true)
+				.entryContext("architectureReady")
+				.exitContext("implementationDone")
+				.exitArtifacts("changeArtifact", "agentValidation")
+				.build();
+	}
+
+	private static StageNode test(String title, String dep, String fallback) {
+		return StageNode.builder("test", StageType.TESTING, title)
+				.dependsOn(dep)
+				.fallback(fallback)
+				.exitContext("testsPassed")
+				.exitArtifacts("testReport", "passed")
+				.build();
+	}
+
+	private static StageNode testFallback(String title, String dep) {
+		return StageNode.builder("test_fallback", StageType.TESTING_FALLBACK, title)
+				.dependsOn(dep)
+				.activationOnly()
+				.exitContext("testsPassed")
+				.exitArtifacts("testReport", "passed")
+				.build();
+	}
+
+	private static StageNode docs(String title, String dep) {
+		return StageNode.builder("docs", StageType.DOCUMENTATION, title)
+				.dependsOn(dep)
+				.exitContext("docsReady")
+				.exitArtifacts("documentation")
+				.build();
+	}
+
+	private static StageNode release(String title, String... deps) {
+		return StageNode.builder("release", StageType.RELEASE_READINESS, title)
+				.dependsOn(List.of(deps))
+				.approval(true)
+				.entryContext("testsPassed", "docsReady")
+				.exitArtifacts("releaseChecklist")
+				.completesRun()
+				.build();
 	}
 }

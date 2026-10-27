@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @SpringBootTest
 class ApiIntegrationTest {
 
+	private static final String KEY = "test-api-key";
+
 	@Autowired
 	private WebApplicationContext context;
 
@@ -37,6 +39,7 @@ class ApiIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		rateLimitFilter.resetWindows();
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
 				.addFilters(apiKeyAuthFilter, rateLimitFilter)
 				.build();
@@ -49,7 +52,7 @@ class ApiIntegrationTest {
 				.andExpect(status().isUnauthorized());
 
 		String body = mockMvc
-				.perform(post("/api/urls").header("X-API-Key", "demo-api-key-change-me")
+				.perform(post("/api/urls").header("X-API-Key", KEY)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(
 								"{\"url\":\"https://example.com\",\"customAlias\":\"inttest1\",\"ttlSeconds\":120}"))
@@ -61,7 +64,7 @@ class ApiIntegrationTest {
 
 		mockMvc.perform(get("/" + code)).andExpect(status().isFound());
 
-		mockMvc.perform(delete("/api/urls/" + code).header("X-API-Key", "demo-api-key-change-me"))
+		mockMvc.perform(delete("/api/urls/" + code).header("X-API-Key", KEY))
 				.andExpect(status().isOk());
 
 		mockMvc.perform(get("/" + code)).andExpect(status().isNotFound());
@@ -69,7 +72,7 @@ class ApiIntegrationTest {
 
 	@Test
 	void orchestrationStartAndMetrics() throws Exception {
-		mockMvc.perform(post("/api/orchestration/runs").header("X-API-Key", "demo-api-key-change-me")
+		mockMvc.perform(post("/api/orchestration/runs").header("X-API-Key", KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(
 						"{\"scenario\":\"greenfield\",\"requirement\":\"Build a URL shortener with create and redirect APIs over HTTPS.\"}"))
@@ -78,5 +81,24 @@ class ApiIntegrationTest {
 
 		mockMvc.perform(get("/api/orchestration/metrics")).andExpect(status().isOk())
 				.andExpect(jsonPath("$.reliability.runsStarted").exists());
+	}
+
+	@Test
+	void rejectsWrongApiKey() throws Exception {
+		mockMvc.perform(post("/api/urls").header("X-API-Key", "wrong-key")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"url\":\"https://example.com\"}"))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void enforcesRateLimit() throws Exception {
+		rateLimitFilter.resetWindows();
+		for (int i = 0; i < 5; i++) {
+			mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", KEY))
+					.andExpect(status().isOk());
+		}
+		mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", KEY))
+				.andExpect(status().isTooManyRequests());
 	}
 }

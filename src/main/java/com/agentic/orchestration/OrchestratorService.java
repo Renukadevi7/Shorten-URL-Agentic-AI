@@ -88,7 +88,7 @@ public class OrchestratorService {
 		run.setAwaitingStageId(null);
 		run.setStatus(RunStatus.RUNNING);
 
-		if (stage.type() == StageType.RELEASE_READINESS) {
+		if (stage.completesRun()) {
 			List<String> releaseViolations = policyGuardrail.validateRelease(run);
 			if (!releaseViolations.isEmpty()) {
 				fail(run, "Release policy blocked: " + String.join("; ", releaseViolations));
@@ -114,6 +114,7 @@ public class OrchestratorService {
 		if (run.status() != RunStatus.SAFE_STOPPED) {
 			throw new IllegalStateException("Run is not safely stopped");
 		}
+		markRecovery(run, "RESUME");
 		auditLog.record(run, null, "RESUME", "Operator resumed run after safe-stop", Map.of());
 		run.setStatus(RunStatus.RUNNING);
 		run.setEndedAt(null);
@@ -127,9 +128,6 @@ public class OrchestratorService {
 		return run;
 	}
 
-	/**
-	 * Fault injection so scenarios can demonstrate retry/fallback/rollback.
-	 */
 	public OrchestrationRun injectFault(String id, String faultType, boolean once) {
 		OrchestrationRun run = require(id);
 		run.context().put("faultInjection", faultType);
@@ -138,14 +136,10 @@ public class OrchestratorService {
 		return run;
 	}
 
-	/**
-	 * Mutate an upstream output and trigger dynamic re-planning (not a hard-coded clarification stage).
-	 */
 	public OrchestrationRun mutateUpstream(String id, String newRequirement) {
 		OrchestrationRun run = require(id);
 		String oldFp = String.valueOf(run.context().get("requirementFingerprint"));
 		run.context().put("previousRequirement", run.requirement());
-		// reflect upstream change in context + fingerprint
 		run.context().put("upstreamRequirement", newRequirement);
 		run.context().put("requirementFingerprint", fingerprint(newRequirement));
 		run.context().put("replanReason", "Upstream requirement fingerprint changed: " + oldFp + " -> "
@@ -188,14 +182,12 @@ public class OrchestratorService {
 			for (StageNode stage : ready) {
 				futures.add(CompletableFuture.runAsync(() -> executeStage(run, stage), parallelExecutor));
 			}
-			// Real synchronization point: wait for the entire ready-set wave.
 			CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
 
 			if (run.status() == RunStatus.AWAITING_APPROVAL || isTerminal(run.status())) {
 				return;
 			}
 
-			// Prevent infinite waves: if every stage in this wave stayed blocked, stop safely.
 			boolean progressed = ready.stream().anyMatch(stage -> stage.status() != StageStatus.BLOCKED);
 			if (!progressed) {
 				safeStop(run, "No progress: ready stages remained entry-gate blocked");
@@ -210,7 +202,6 @@ public class OrchestratorService {
 			if (!entryViolations.isEmpty()) {
 				auditLog.record(run, stage.id(), "ENTRY_GATE_BLOCKED",
 						"Entry gate failed output validation", Map.of("violations", entryViolations));
-				// Sticky block — readyStages will not re-queue until deps/context change.
 				stage.setStatus(StageStatus.BLOCKED);
 				run.context().put("entryBlocked_" + stage.id(), true);
 				return;
@@ -220,11 +211,11 @@ public class OrchestratorService {
 			stage.incrementAttempts();
 			auditLog.record(run, stage.id(), "STAGE_ENTER",
 					"Entering stage " + stage.title() + " on " + Thread.currentThread().getName(),
-					Map.of("attempt", stage.attempts()));
+					Map.of("attempt", stage.attempts(), "thread", Thread.currentThread().getName(),
+							"enteredAtMs", System.currentTimeMillis()));
 		}
 
 		try {
-			// Execute outside the run lock so independent stages can proceed concurrently.
 			stageExecutor.execute(run, stage);
 			synchronized (run) {
 				exitGate(run, stage);
@@ -256,6 +247,7 @@ public class OrchestratorService {
 
 	private void handleFailure(OrchestrationRun run, StageNode stage, RuntimeException ex) {
 		synchronized (run) {
+			markFailureStart(run);
 			auditLog.record(run, stage.id(), "STAGE_FAILURE", ex.getMessage(),
 					Map.of("attempt", stage.attempts()));
 		}
@@ -268,10 +260,10 @@ public class OrchestratorService {
 						Map.of("attempt", stage.attempts(), "maxRetries", stage.maxRetries()));
 			}
 			try {
-				// Retry outside the run lock so peer stages in the same wave are not stalled.
 				stageExecutor.execute(run, stage);
 				synchronized (run) {
 					exitGate(run, stage);
+					markRecovery(run, "RETRY_SUCCESS");
 					if (run.status() != RunStatus.AWAITING_APPROVAL) {
 						run.setStatus(RunStatus.RUNNING);
 					}
@@ -307,13 +299,14 @@ public class OrchestratorService {
 				if (fallback.status() == StageStatus.SUCCEEDED) {
 					synchronized (run) {
 						run.context().put("acceptedFallback_" + stage.id(), true);
-						// Mark primary as skipped so release deps treat fallback as accepted.
 						stage.setStatus(StageStatus.SKIPPED);
 						stage.artifacts().put("passed", true);
 						stage.artifacts().put("testPassed", true);
 						stage.artifacts().put("testReport", "Accepted via fallback " + fallback.id());
 						stage.setOutput("Skipped after successful fallback " + fallback.id());
-						run.context().remove("entryBlocked_release");
+						// Clear sticky entry blocks for any stage that depended on the failed primary.
+						run.context().keySet().removeIf(k -> k.startsWith("entryBlocked_"));
+						markRecovery(run, "FALLBACK_SUCCESS");
 						run.setStatus(RunStatus.RUNNING);
 					}
 					return;
@@ -329,6 +322,24 @@ public class OrchestratorService {
 		synchronized (run) {
 			performRollback(run, stage);
 			safeStop(run, "Stage failed after retries/fallback: " + ex.getMessage());
+		}
+	}
+
+	private void markFailureStart(OrchestrationRun run) {
+		if (run.context().get("failureStartedAtMs") == null) {
+			long at = System.currentTimeMillis();
+			run.context().put("failureStartedAtMs", at);
+			auditLog.record(run, null, "FAILURE_CLOCK_START", "MTTR clock started", Map.of("atMs", at));
+		}
+	}
+
+	private void markRecovery(OrchestrationRun run, String reason) {
+		Object started = run.context().remove("failureStartedAtMs");
+		if (started instanceof Number n) {
+			long mttr = Math.max(0, System.currentTimeMillis() - n.longValue());
+			metricsRegistry.onRecovery(mttr);
+			auditLog.record(run, null, "RECOVERY", "Recovered after failure via " + reason,
+					Map.of("mttrMs", mttr, "reason", reason));
 		}
 	}
 
@@ -372,9 +383,6 @@ public class OrchestratorService {
 		return pending != null && !Boolean.TRUE.equals(applied);
 	}
 
-	/**
-	 * Dynamic re-plan: insert a REPLAN stage after the last succeeded stage and invalidate downstream.
-	 */
 	private void dynamicReplan(OrchestrationRun run) {
 		String reason = String.valueOf(run.context().getOrDefault("replanReason", "Upstream changed"));
 		String replanId = "replan_" + run.stages().size();
@@ -383,8 +391,10 @@ public class OrchestratorService {
 				.reduce((a, b) -> b)
 				.orElse("req");
 
-		StageNode replan = StageNode.of(replanId, StageType.REPLAN, "Dynamic re-plan after upstream change",
-				List.of(anchor), false);
+		StageNode replan = StageNode.builder(replanId, StageType.REPLAN, "Dynamic re-plan after upstream change")
+				.dependsOn(anchor)
+				.exitArtifacts("replanReason", "clarifiedRequirement")
+				.build();
 		run.addStage(replan);
 		replan.setStatus(StageStatus.READY);
 
@@ -393,28 +403,21 @@ public class OrchestratorService {
 			if (node.status() == StageStatus.SUCCEEDED || node.id().equals(replanId)) {
 				continue;
 			}
-			if (node.dependsOn().contains(anchor) || node.type() == StageType.ARCHITECTURE
-					|| node.type() == StageType.IMPLEMENTATION || node.type() == StageType.TESTING
-					|| node.type() == StageType.DOCUMENTATION || node.type() == StageType.RELEASE_READINESS
-					|| node.type() == StageType.TESTING_FALLBACK) {
-				if (node.status() != StageStatus.BLOCKED) {
-					node.setStatus(StageStatus.BLOCKED);
-					node.resetAttempts();
-				}
+			if (dependsTransitivelyOn(run, node, anchor) && !node.activationOnly()) {
+				node.setStatus(StageStatus.BLOCKED);
+				node.resetAttempts();
 			}
 		}
-		// Force architecture/implementation to depend conceptually on replan by resetting flags
 		run.context().put("architectureReady", false);
 		run.context().put("implementationDone", false);
 		run.context().put("testsPassed", false);
 		run.context().put("docsReady", false);
 		run.context().remove("replanApplied");
+		run.context().keySet().removeIf(k -> k.startsWith("entryBlocked_"));
 
-		// Rewire: make architecture depend on replan if present
 		StageNode arch = run.stages().get("arch");
 		if (arch != null) {
-			StageNode rewired = StageNode.of(arch.id(), arch.type(), arch.title(), List.of(replanId),
-					arch.requiresHumanApproval(), arch.fallbackStageId());
+			StageNode rewired = arch.withDependsOn(List.of(replanId));
 			run.stages().put(arch.id(), rewired);
 		}
 
@@ -422,6 +425,19 @@ public class OrchestratorService {
 		auditLog.record(run, replanId, "DYNAMIC_REPLAN",
 				"Inserted REPLAN stage and invalidated downstream after upstream change",
 				Map.of("reason", reason, "anchor", anchor));
+	}
+
+	private boolean dependsTransitivelyOn(OrchestrationRun run, StageNode node, String anchor) {
+		if (node.dependsOn().contains(anchor)) {
+			return true;
+		}
+		for (String dep : node.dependsOn()) {
+			StageNode parent = run.stages().get(dep);
+			if (parent != null && dependsTransitivelyOn(run, parent, anchor)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private List<StageNode> readyStages(OrchestrationRun run) {
@@ -433,13 +449,11 @@ public class OrchestratorService {
 					|| stage.status() == StageStatus.ROLLED_BACK || stage.status() == StageStatus.FAILED) {
 				continue;
 			}
-			// Sticky entry-gate failure: do not thrash the same stage every wave.
 			if (Boolean.TRUE.equals(run.context().get("entryBlocked_" + stage.id()))) {
 				continue;
 			}
-			// Special-case: test_fallback stays blocked unless activated via fallback
-			if (stage.type() == StageType.TESTING_FALLBACK && stage.status() != StageStatus.READY) {
-				stage.setStatus(StageStatus.BLOCKED);
+			// activationOnly stages (fallbacks) wait until explicitly set READY.
+			if (stage.activationOnly() && stage.status() != StageStatus.READY) {
 				continue;
 			}
 			boolean depsMet = stage.dependsOn().stream().allMatch(dep -> {
@@ -450,24 +464,19 @@ public class OrchestratorService {
 				if (parent.status() == StageStatus.SUCCEEDED || parent.status() == StageStatus.SKIPPED) {
 					return true;
 				}
-				// allow release to proceed if test skipped due to successful fallback
-				if ("test".equals(dep) && stage.id().equals("release")
-						&& Boolean.TRUE.equals(run.context().get("acceptedFallback_test"))
-						&& run.stages().containsKey("test_fallback")
-						&& run.stages().get("test_fallback").status() == StageStatus.SUCCEEDED) {
-					return true;
-				}
-				return false;
+				return Boolean.TRUE.equals(run.context().get("acceptedFallback_" + dep));
 			});
-			if (depsMet && stage.type() != StageType.TESTING_FALLBACK) {
-				stage.setStatus(StageStatus.READY);
-				ready.add(stage);
+			if (!depsMet) {
+				if (!stage.activationOnly()) {
+					stage.setStatus(StageStatus.BLOCKED);
+				}
+				continue;
 			}
-			else if (depsMet && stage.status() == StageStatus.READY) {
+			if (!stage.activationOnly() || stage.status() == StageStatus.READY) {
+				if (!stage.activationOnly()) {
+					stage.setStatus(StageStatus.READY);
+				}
 				ready.add(stage);
-			}
-			else if (stage.type() != StageType.TESTING_FALLBACK) {
-				stage.setStatus(StageStatus.BLOCKED);
 			}
 		}
 		return ready;
@@ -486,7 +495,7 @@ public class OrchestratorService {
 		run.setFailureMessage(message);
 		run.setEndedAt(Instant.now());
 		auditLog.record(run, null, "RUN_FAILED", message, Map.of());
-		metricsRegistry.onFail(run.latencyMs(), run.latencyMs());
+		metricsRegistry.onFail(run.latencyMs());
 	}
 
 	private void safeStop(OrchestrationRun run, String reason) {
@@ -495,7 +504,7 @@ public class OrchestratorService {
 		run.setEndedAt(Instant.now());
 		auditLog.record(run, null, "SAFE_STOP", reason,
 				Map.of("latencyMs", run.latencyMs(), "retries", run.retries(), "rollbacks", run.rollbacks()));
-		metricsRegistry.onFail(run.latencyMs(), run.latencyMs());
+		metricsRegistry.onFail(run.latencyMs());
 	}
 
 	private OrchestrationRun require(String id) {

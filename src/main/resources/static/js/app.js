@@ -1,4 +1,4 @@
-const API_KEY = "demo-api-key-change-me";
+const apiKeyEl = document.getElementById("apiKey");
 const scenarioEl = document.getElementById("scenario");
 const requirementEl = document.getElementById("requirement");
 const runView = document.getElementById("run-view");
@@ -13,8 +13,19 @@ const PRESETS = {
 
 let currentRunId = null;
 
+apiKeyEl.value = sessionStorage.getItem("agenticApiKey") || "";
+apiKeyEl.addEventListener("change", () => {
+  sessionStorage.setItem("agenticApiKey", apiKeyEl.value.trim());
+});
+
+function apiKey() {
+  const key = apiKeyEl.value.trim();
+  sessionStorage.setItem("agenticApiKey", key);
+  return key;
+}
+
 function headers(json = true) {
-  const h = { "X-API-Key": API_KEY };
+  const h = { "X-API-Key": apiKey() };
   if (json) h["Content-Type"] = "application/json";
   return h;
 }
@@ -115,6 +126,13 @@ function bind(id, fn) {
 }
 
 async function post(url, body) {
+  if (!apiKey()) {
+    runView.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="small" style="color:#b91c1c">Set API key first (must match AGENTIC_API_KEY).</div>`
+    );
+    return null;
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: headers(body !== undefined),

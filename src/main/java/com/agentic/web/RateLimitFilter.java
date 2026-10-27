@@ -25,6 +25,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
 		this.limit = limit;
 	}
 
+	/** Test helper: reset in-memory windows between cases. */
+	public void resetWindows() {
+		windows.clear();
+	}
+
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
