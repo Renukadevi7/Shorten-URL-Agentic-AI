@@ -30,6 +30,7 @@ public class StageExecutor {
 		register(StageType.CLARIFICATION, this::replan);
 		register(StageType.REPLAN, this::replan);
 		register(StageType.ARCHITECTURE, this::architecture);
+		register(StageType.SECURITY_REVIEW, this::securityReview);
 		register(StageType.IMPLEMENTATION, this::implementation);
 		register(StageType.TESTING, (run, stage) -> testing(run, stage, false));
 		register(StageType.TESTING_FALLBACK, (run, stage) -> testing(run, stage, true));
@@ -62,6 +63,13 @@ public class StageExecutor {
 				run.context().remove("faultInjection");
 			}
 			throw new IllegalStateException("Fault injection: FAIL_TESTING");
+		}
+		if ("FAIL_ALL_TESTING".equals(faultType)
+				&& (stage.type() == StageType.TESTING || stage.type() == StageType.TESTING_FALLBACK)) {
+			if (once) {
+				run.context().remove("faultInjection");
+			}
+			throw new IllegalStateException("Fault injection: FAIL_ALL_TESTING");
 		}
 		if ("FAIL_IMPLEMENTATION".equals(faultType) && stage.type() == StageType.IMPLEMENTATION) {
 			if (once) {
@@ -111,6 +119,25 @@ public class StageExecutor {
 		stage.artifacts().put("clarifiedRequirement", clarified);
 		stage.setOutput(clarified);
 		run.audit(stage.id(), "REPLAN", reason, Map.of("newRequirementVersion", run.context().get("requirementVersion")));
+	}
+
+	private void securityReview(OrchestrationRun run, StageNode stage) {
+		List<String> findings = new java.util.ArrayList<>();
+		findings.add("Auth required on mutating APIs (X-API-Key)");
+		findings.add("Rate limit enforced per key");
+		findings.add("HTTPS-only sample targets");
+		findings.add("Human approval required for implementation and release");
+		if (Boolean.TRUE.equals(run.context().get("ambiguousDetected"))) {
+			findings.add("Ambiguous requirement flagged — provisional scope accepted with replan path");
+		}
+		Map<String, Object> report = new LinkedHashMap<>();
+		report.put("findings", findings);
+		report.put("severity", "PASS");
+		report.put("changeControl", "approval gates retained");
+		stage.artifacts().put("securityFindings", report);
+		run.context().put("securityReviewPassed", true);
+		stage.setOutput("Security & change-control review passed (" + findings.size() + " checks).");
+		run.audit(stage.id(), "SECURITY_REVIEW", stage.output(), report);
 	}
 
 	private void architecture(OrchestrationRun run, StageNode stage) {

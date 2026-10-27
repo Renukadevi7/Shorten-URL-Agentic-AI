@@ -1,0 +1,75 @@
+{
+  "scenario": "ambiguous",
+  "stages": [
+    {
+      "id": "req",
+      "type": "REQUIREMENTS",
+      "title": "Detect ambiguity in requirement",
+      "dependsOn": [],
+      "exitArtifacts": ["problemStatement", "impactAnalysis"]
+    },
+    {
+      "id": "arch",
+      "type": "ARCHITECTURE",
+      "title": "Architecture for provisional scope",
+      "dependsOn": ["req"],
+      "exitContext": ["architectureReady"],
+      "exitArtifacts": ["architecture"]
+    },
+    {
+      "id": "sec",
+      "type": "SECURITY_REVIEW",
+      "title": "Security & change-control review",
+      "dependsOn": ["arch"],
+      "entryContext": ["architectureReady"],
+      "exitContext": ["securityReviewPassed"],
+      "exitArtifacts": ["securityFindings"]
+    },
+    {
+      "id": "impl",
+      "type": "IMPLEMENTATION",
+      "title": "Implement provisional scope",
+      "dependsOn": ["sec"],
+      "requiresHumanApproval": true,
+      "entryContext": ["architectureReady", "securityReviewPassed"],
+      "exitContext": ["implementationDone"],
+      "exitArtifacts": ["changeArtifact", "agentValidation"]
+    },
+    {
+      "id": "test",
+      "type": "TESTING",
+      "title": "Validate provisional scope",
+      "dependsOn": ["impl"],
+      "fallbackStageId": "test_fallback",
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "test_fallback",
+      "type": "TESTING_FALLBACK",
+      "title": "Fallback smoke tests",
+      "dependsOn": ["impl"],
+      "activationOnly": true,
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "docs",
+      "type": "DOCUMENTATION",
+      "title": "Document provisional scope",
+      "dependsOn": ["impl"],
+      "exitContext": ["docsReady"],
+      "exitArtifacts": ["documentation"]
+    },
+    {
+      "id": "release",
+      "type": "RELEASE_READINESS",
+      "title": "Release readiness",
+      "dependsOn": ["test", "docs"],
+      "requiresHumanApproval": true,
+      "completesRun": true,
+      "entryContext": ["testsPassed", "docsReady"],
+      "exitArtifacts": ["releaseChecklist"]
+    }
+  ]
+}

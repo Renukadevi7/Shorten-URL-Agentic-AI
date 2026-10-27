@@ -84,6 +84,19 @@ public class UrlShortenerService {
 		return true;
 	}
 
+	/** Force-expire a code so ChangeAgent/tests can validate TTL without sleeping. */
+	@Transactional
+	public boolean forceExpire(String code) {
+		Optional<ShortUrlEntity> found = repository.findById(code);
+		if (found.isEmpty()) {
+			return false;
+		}
+		ShortUrlEntity entity = found.get();
+		entity.forceExpire(Instant.now().minusSeconds(1));
+		repository.save(entity);
+		return true;
+	}
+
 	public Map<String, Object> featureFlags() {
 		Map<String, Object> map = new LinkedHashMap<>();
 		map.put("analyticsEnabled", analyticsEnabled.get());

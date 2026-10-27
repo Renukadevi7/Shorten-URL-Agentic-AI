@@ -46,11 +46,15 @@ X-API-Key: <your AGENTIC_API_KEY value>
 
 ## Scenarios
 
+Stage DAGs are JSON under `src/main/resources/orchestration/graphs/` (including a `SECURITY_REVIEW` stage added via config).
+
 | Scenario | Purpose |
 | --- | --- |
 | **greenfield** | Build shortener capabilities under a gated SDLC |
 | **brownfield** | Impact analysis and analytics/reliability evolution |
 | **ambiguous** | Provisional scope; use mutate-upstream to force dynamic re-plan |
+
+Fault injection: `FAIL_TESTING` (primary fails → fallback recovers), `FAIL_ALL_TESTING` (rollback + safe-stop), `FAIL_IMPLEMENTATION`.
 
 ## Core APIs
 

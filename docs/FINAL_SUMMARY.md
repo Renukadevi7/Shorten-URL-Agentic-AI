@@ -1,43 +1,51 @@
 # Final Engineering Summary
 
-## Plan and rationale
+## Design decisions
 
-Build an **agentic SDLC control plane** that produces a real **URL shortener** outcome. Evaluation signal is orchestration quality: dependency graph, metadata-driven gates, concurrent stages with sync, ChangeAgent produce/apply/validate, fallback/rollback, dynamic re-plan, lineage, and metrics — under human approval boundaries.
+- Treat orchestration as the product: declarative JSON stage graphs, metadata-driven gates, pluggable `ChangeAgent`.
+- Deterministic `HeuristicChangeAgent` produces a **unified source diff** and **OpenAPI 3** spec, applies product mutations under snapshot, and validates (HTTPS, resolve, expiry, policy, artifact presence). An LLM agent can replace the bean without engine changes.
+- Graphs live under `src/main/resources/orchestration/graphs/`; the `SECURITY_REVIEW` stage was added via JSON to prove the engine does not hard-code stage ids.
+- MTTR is measured as failure→recovery; end-to-end latency remains a separate full-run metric.
 
 ## Artifacts produced
 
-- Runnable Spring Boot app (`./mvnw spring-boot:run`) on port `43127`
-- Orchestration APIs including fault injection and upstream mutation
-- URL APIs: create (alias/TTL), redirect, delete, stats; H2 persistence; API key + rate limit
+- Spring Boot app on port `43127` (`./mvnw spring-boot:run` with `AGENTIC_API_KEY`)
+- Orchestration + URL APIs (alias, TTL, delete, stats, H2 file persistence, auth, rate limit)
 - Scenarios: greenfield, brownfield, ambiguous
-- Unit + integration tests (auth, rate-limit, concurrency overlap, failure/fallback/MTTR)
-- Architecture doc aligned to concrete classes
+- Tests: ChangeAgent artifacts, concurrency overlap, fallback/MTTR, rollback/safe-stop, auth 401, rate-limit 429, expiry
+- `docs/ARCHITECTURE.md`, this summary, README setup
 
 ## Validation evidence
 
-- Entry/exit gates driven by stage metadata (required context/artifacts)
-- Parallel wave uses `CompletableFuture.allOf`; tests assert overlapping `orch-parallel` stage entry
-- `FAIL_TESTING` exhausts retries then activates fallback; MTTR samples increase on recovery
-- Implementation lineage includes `AGENT_PRODUCE` / `AGENT_APPLY` / `AGENT_VALIDATE`
-- `mutate-upstream` emits `UPSTREAM_CHANGED` / `DYNAMIC_REPLAN`
-- Metrics expose retries/rollbacks/latency and MTTR from failure→recovery (not full-run latency)
-- Integration tests cover missing/wrong API key (401) and rate-limit (429)
+| Requirement | Evidence |
+| --- | --- |
+| Real ChangeAgent | Lineage `AGENT_PRODUCE`/`APPLY`/`VALIDATE`; stage artifacts include `unifiedDiff` + `apiSpecification` |
+| Generic orchestration | `sec` SECURITY_REVIEW stage only in JSON; dynamic replan finds ARCHITECTURE by type |
+| Concurrent sync | `PARALLEL_WAVE` + `orch-parallel` threads for test∥docs |
+| Recovery | `FAIL_TESTING` → retries/fallback or ROLLBACK + SAFE_STOPPED; `RECOVERY` carries `mttrMs` |
+| Metrics | MTTR samples increase on recovery; latency ≥ MTTR; documented definitions |
+| Security | Unauthorized → 401; H2 console off; no committed API key; PDF removed from tree |
+| URL features | alias, TTL/expiry, delete, auth, rate limit, H2 |
 
 ## Risks / trade-offs
 
-- Default ChangeAgent is deterministic (pluggable for LLM) so demos stay offline-reproducible
-- In-process orchestration state is not clustered; product data is H2 file
-- Rate limiter is memory-local (prototype scope)
+- Default agent is deterministic (offline-reproducible) rather than a hosted LLM.
+- In-process orchestration state; product data is H2 file.
+- UI may bootstrap the runtime API key locally for demo DX (value still from env, not git).
 
 ## Assumptions
 
-- Operator supplies `AGENTIC_API_KEY` (or gitignored local properties)
-- Human approvals available for Implementation and Release
-- Demo hosts use public HTTPS URLs (localhost targets blocked)
+- Operator sets `AGENTIC_API_KEY` and can approve Implementation / Release.
+- Demo hosts use public HTTPS URLs.
 
 ## Limitations
 
-- No IdP/SSO; API key only
-- Heuristic ChangeAgent is not a hosted LLM (contract is LLM-ready)
-- No distributed transaction across orchestration + product beyond snapshot restore
-- UI is a control-plane dashboard, not a full design portal
+- No IdP/SSO; API key only.
+- New *stage types* still need a handler registration; new *stages of existing types* are JSON-only.
+- Not a clustered orchestrator.
+
+## Confidential PDF / git history assessment
+
+- `docs/assignment.pdf` is **removed from the current tree** (deleted in commit history as a normal file delete).
+- Blobs may still exist in older commits. If the public GitHub remote ever contained that PDF, treat history as leaked: rotate any secrets that appeared in the PDF, and rewrite history with `git filter-repo` (or BFG) before final public promotion — then force-push and ask collaborators to re-clone.
+- This Origin-backed working copy should not republish the PDF; do not restore it.

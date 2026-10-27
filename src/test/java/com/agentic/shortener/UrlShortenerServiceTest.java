@@ -30,6 +30,14 @@ class UrlShortenerServiceTest {
 	}
 
 	@Test
+	void expiredCodesDoNotResolve() {
+		ShortUrl created = service.shorten("https://example.com/ttl", "ttlalias", 120L);
+		assertTrue(service.resolve("ttlalias").isPresent());
+		assertTrue(service.forceExpire("ttlalias"));
+		assertFalse(service.resolve("ttlalias").isPresent());
+	}
+
+	@Test
 	void rejectsDuplicateAlias() {
 		service.shorten("https://example.com/a", "dup", null);
 		assertThrows(IllegalArgumentException.class,

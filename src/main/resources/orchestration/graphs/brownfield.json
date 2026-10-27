@@ -1,0 +1,75 @@
+{
+  "scenario": "brownfield",
+  "stages": [
+    {
+      "id": "req",
+      "type": "REQUIREMENTS",
+      "title": "Normalize brownfield enhancement",
+      "dependsOn": [],
+      "exitArtifacts": ["problemStatement", "impactAnalysis"]
+    },
+    {
+      "id": "arch",
+      "type": "ARCHITECTURE",
+      "title": "Impact analysis for analytics/reliability",
+      "dependsOn": ["req"],
+      "exitContext": ["architectureReady"],
+      "exitArtifacts": ["architecture"]
+    },
+    {
+      "id": "sec",
+      "type": "SECURITY_REVIEW",
+      "title": "Security & change-control review",
+      "dependsOn": ["arch"],
+      "entryContext": ["architectureReady"],
+      "exitContext": ["securityReviewPassed"],
+      "exitArtifacts": ["securityFindings"]
+    },
+    {
+      "id": "impl",
+      "type": "IMPLEMENTATION",
+      "title": "Enable analytics+reliability + persistence checks",
+      "dependsOn": ["sec"],
+      "requiresHumanApproval": true,
+      "entryContext": ["architectureReady", "securityReviewPassed"],
+      "exitContext": ["implementationDone"],
+      "exitArtifacts": ["changeArtifact", "agentValidation"]
+    },
+    {
+      "id": "test",
+      "type": "TESTING",
+      "title": "Regression + stats validation",
+      "dependsOn": ["impl"],
+      "fallbackStageId": "test_fallback",
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "test_fallback",
+      "type": "TESTING_FALLBACK",
+      "title": "Fallback smoke tests",
+      "dependsOn": ["impl"],
+      "activationOnly": true,
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "docs",
+      "type": "DOCUMENTATION",
+      "title": "Update docs for stats/delete/alias",
+      "dependsOn": ["impl"],
+      "exitContext": ["docsReady"],
+      "exitArtifacts": ["documentation"]
+    },
+    {
+      "id": "release",
+      "type": "RELEASE_READINESS",
+      "title": "Change-control release gate",
+      "dependsOn": ["test", "docs"],
+      "requiresHumanApproval": true,
+      "completesRun": true,
+      "entryContext": ["testsPassed", "docsReady"],
+      "exitArtifacts": ["releaseChecklist"]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "scenario": "greenfield",
+  "stages": [
+    {
+      "id": "req",
+      "type": "REQUIREMENTS",
+      "title": "Normalize greenfield requirement",
+      "dependsOn": [],
+      "exitArtifacts": ["problemStatement", "impactAnalysis"]
+    },
+    {
+      "id": "arch",
+      "type": "ARCHITECTURE",
+      "title": "Draft architecture",
+      "dependsOn": ["req"],
+      "exitContext": ["architectureReady"],
+      "exitArtifacts": ["architecture"]
+    },
+    {
+      "id": "sec",
+      "type": "SECURITY_REVIEW",
+      "title": "Security & change-control review",
+      "dependsOn": ["arch"],
+      "entryContext": ["architectureReady"],
+      "exitContext": ["securityReviewPassed"],
+      "exitArtifacts": ["securityFindings"]
+    },
+    {
+      "id": "impl",
+      "type": "IMPLEMENTATION",
+      "title": "Implement create+redirect+reliability APIs",
+      "dependsOn": ["sec"],
+      "requiresHumanApproval": true,
+      "entryContext": ["architectureReady", "securityReviewPassed"],
+      "exitContext": ["implementationDone"],
+      "exitArtifacts": ["changeArtifact", "agentValidation"]
+    },
+    {
+      "id": "test",
+      "type": "TESTING",
+      "title": "Validate APIs (primary)",
+      "dependsOn": ["impl"],
+      "fallbackStageId": "test_fallback",
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "test_fallback",
+      "type": "TESTING_FALLBACK",
+      "title": "Fallback reduced test pack",
+      "dependsOn": ["impl"],
+      "activationOnly": true,
+      "exitContext": ["testsPassed"],
+      "exitArtifacts": ["testReport", "passed"]
+    },
+    {
+      "id": "docs",
+      "type": "DOCUMENTATION",
+      "title": "Generate API docs",
+      "dependsOn": ["impl"],
+      "exitContext": ["docsReady"],
+      "exitArtifacts": ["documentation"]
+    },
+    {
+      "id": "release",
+      "type": "RELEASE_READINESS",
+      "title": "Release readiness gate",
+      "dependsOn": ["test", "docs"],
+      "requiresHumanApproval": true,
+      "completesRun": true,
+      "entryContext": ["testsPassed", "docsReady"],
+      "exitArtifacts": ["releaseChecklist"]
+    }
+  ]
+}

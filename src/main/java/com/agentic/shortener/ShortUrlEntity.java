@@ -85,6 +85,10 @@ public class ShortUrlEntity {
 		this.lastClickedAt = lastClickedAt;
 	}
 
+	public void forceExpire(Instant when) {
+		this.expiresAt = when;
+	}
+
 	public boolean isExpired(Instant now) {
 		return expiresAt != null && now.isAfter(expiresAt);
 	}

@@ -387,9 +387,12 @@ public class OrchestratorService {
 		String reason = String.valueOf(run.context().getOrDefault("replanReason", "Upstream changed"));
 		String replanId = "replan_" + run.stages().size();
 		String anchor = run.stageOrder().stream()
-				.filter(id -> run.stages().get(id).status() == StageStatus.SUCCEEDED)
+				.filter(id -> {
+					StageNode n = run.stages().get(id);
+					return n != null && n.status() == StageStatus.SUCCEEDED;
+				})
 				.reduce((a, b) -> b)
-				.orElse("req");
+				.orElseGet(() -> run.stageOrder().isEmpty() ? "unknown" : run.stageOrder().get(0));
 
 		StageNode replan = StageNode.builder(replanId, StageType.REPLAN, "Dynamic re-plan after upstream change")
 				.dependsOn(anchor)
@@ -409,17 +412,18 @@ public class OrchestratorService {
 			}
 		}
 		run.context().put("architectureReady", false);
+		run.context().put("securityReviewPassed", false);
 		run.context().put("implementationDone", false);
 		run.context().put("testsPassed", false);
 		run.context().put("docsReady", false);
 		run.context().remove("replanApplied");
 		run.context().keySet().removeIf(k -> k.startsWith("entryBlocked_"));
 
-		StageNode arch = run.stages().get("arch");
-		if (arch != null) {
-			StageNode rewired = arch.withDependsOn(List.of(replanId));
-			run.stages().put(arch.id(), rewired);
-		}
+		// Rewire first architecture-typed stage onto the replan node (metadata-driven, not id hard-code).
+		run.stages().values().stream()
+				.filter(n -> n.type() == StageType.ARCHITECTURE)
+				.findFirst()
+				.ifPresent(arch -> run.stages().put(arch.id(), arch.withDependsOn(List.of(replanId))));
 
 		run.context().put("replanScheduled", true);
 		auditLog.record(run, replanId, "DYNAMIC_REPLAN",
