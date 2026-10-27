@@ -7,8 +7,9 @@
 | Orchestrator | `OrchestratorService` | Parallel ready-set waves, sync barrier, approvals, faults, dynamic replan, MTTR clock |
 | Stage graphs | `orchestration/graphs/*.json` + `StageGraphLoader` | Metadata: deps, entry/exit context/artifacts, fallback, approval, `activationOnly`, `completesRun` |
 | Gate policy | `GatePolicy` | Metadata-driven entry/exit validation (no stage-id switches) |
-| Stage executor | `StageExecutor` | Handler registry by `StageType` |
-| Change agent | `ChangeAgent` / `HeuristicChangeAgent` | produce **unifiedDiff + OpenAPI** → apply → validate |
+| Stage executor | `StageExecutor` | Handler registry by JSON `handler` name (`markProduces` for config-only stages) |
+| Change agent | `ChangeAgent` + `ModelClient` / `ScriptedModelClient` | draft→javac→unit-check→repair; installs `AliasRules` into the live shortener |
+| Alias policy | `AliasRules` / `AliasRulesHolder` | Product uses agent-installed rules for alias validation |
 | Policy | `PolicyGuardrail` + `PolicyDecision` | Explicit ALLOW/BLOCK decisions with audit bundle |
 | Audit / metrics | `AuditLog`, `MetricsRegistry` | Lineage; MTTR only on recovery (never full-run latency as MTTR) |
 | Product | `UrlShortenerService` + H2 | Alias, TTL/expiry, delete, stats, snapshot/restore |

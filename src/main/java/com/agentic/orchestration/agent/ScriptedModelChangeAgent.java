@@ -1,6 +1,8 @@
 package com.agentic.orchestration.agent;
 
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,25 +18,35 @@ import org.springframework.stereotype.Component;
 
 import com.agentic.orchestration.OrchestrationRun;
 import com.agentic.orchestration.PolicyGuardrail;
+import com.agentic.shortener.AliasRules;
+import com.agentic.shortener.AliasRulesHolder;
 import com.agentic.shortener.ProductSnapshot;
 import com.agentic.shortener.ShortUrl;
 import com.agentic.shortener.UrlShortenerService;
 
 /**
- * Offline scripted "model" ChangeAgent: drafts real source into a workspace, compiles it,
- * runs checks, repairs on failure, then applies product mutations under snapshot.
- * Demonstrates generate → validate → repair without requiring a live LLM API key.
+ * ChangeAgent that calls a pluggable {@link ModelClient}, writes real source, compiles it,
+ * runs AliasRules unit checks, repairs on failure, then installs the class into the live product
+ * via {@link AliasRulesHolder}.
  */
 @Primary
 @Component
 public class ScriptedModelChangeAgent implements ChangeAgent {
 
+	private static final String RELATIVE = "src/main/java/com/agentic/generated/GeneratedAliasRules.java";
+	private static final String FQCN = "com.agentic.generated.GeneratedAliasRules";
+
 	private final UrlShortenerService shortener;
 	private final PolicyGuardrail policyGuardrail;
+	private final ModelClient modelClient;
+	private final AliasRulesHolder aliasRulesHolder;
 
-	public ScriptedModelChangeAgent(UrlShortenerService shortener, PolicyGuardrail policyGuardrail) {
+	public ScriptedModelChangeAgent(UrlShortenerService shortener, PolicyGuardrail policyGuardrail,
+			ModelClient modelClient, AliasRulesHolder aliasRulesHolder) {
 		this.shortener = shortener;
 		this.policyGuardrail = policyGuardrail;
+		this.modelClient = modelClient;
+		this.aliasRulesHolder = aliasRulesHolder;
 	}
 
 	@Override
@@ -43,6 +55,7 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		Path workspace = Path.of("data", "agent-workspace", run.id(), changeId);
 		try {
 			Files.createDirectories(workspace.resolve("src/main/java/com/agentic/generated"));
+			Files.createDirectories(workspace.resolve("classes"));
 		}
 		catch (IOException ex) {
 			throw new IllegalStateException("Unable to create agent workspace", ex);
@@ -50,13 +63,13 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 
 		List<Map<String, Object>> drafts = new ArrayList<>();
 		String finalSource = null;
-		String relative = "src/main/java/com/agentic/generated/AliasPolicy.java";
 		int acceptedDraft = -1;
+		Map<String, Object> hints = new LinkedHashMap<>();
+		hints.put("replanApplied", run.context().get("replanApplied"));
 
-		for (int draft = 1; draft <= 2; draft++) {
-			boolean broken = draft == 1;
-			String source = broken ? brokenAliasPolicy() : validAliasPolicy(run);
-			Path file = workspace.resolve(relative);
+		for (int draft = 1; draft <= 3; draft++) {
+			String source = modelClient.draftSource(RELATIVE, run.requirement(), run.scenario(), draft, hints);
+			Path file = workspace.resolve(RELATIVE);
 			try {
 				Files.writeString(file, source, StandardCharsets.UTF_8);
 			}
@@ -70,18 +83,18 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 				acceptedDraft = draft;
 				break;
 			}
+			hints.put("lastProblem", result.get("firstProblem"));
 		}
 		if (finalSource == null) {
-			throw new IllegalStateException("Model failed to produce a compiling change after repair attempts");
+			throw new IllegalStateException("Model failed to produce a compiling, tested change after repairs");
 		}
 
 		String diff = """
 				diff --git a/%s b/%s
-				--- a/%s
+				--- /dev/null
 				+++ b/%s
-				@@
 				%s
-				""".formatted(relative, relative, relative, relative, finalSource);
+				""".formatted(RELATIVE, RELATIVE, RELATIVE, finalSource);
 
 		String openApi = """
 				openapi: 3.0.3
@@ -90,17 +103,13 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 				  version: 1.0.0
 				paths:
 				  /api/urls:
-				    post:
-				      summary: Create short URL with alias/TTL
+				    post: { summary: Create short URL with alias/TTL }
 				  /{code}:
-				    get:
-				      summary: Redirect
+				    get: { summary: Redirect }
 				  /api/urls/{code}:
-				    delete:
-				      summary: Soft-delete
+				    delete: { summary: Soft-delete }
 				  /api/urls/{code}/stats:
-				    get:
-				      summary: Click analytics
+				    get: { summary: Click analytics }
 				""";
 
 		boolean brownfield = "brownfield".equals(run.scenario())
@@ -111,6 +120,9 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		operations.put("workspace", workspace.toString());
 		operations.put("acceptedDraft", acceptedDraft);
 		operations.put("drafts", drafts);
+		operations.put("modelClient", modelClient.getClass().getSimpleName());
+		operations.put("installAliasRules", true);
+		operations.put("generatedClass", FQCN);
 		operations.put("resetProduct", reset);
 		operations.put("enableAnalytics", true);
 		operations.put("enableReliability", true);
@@ -125,6 +137,8 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		validation.put("requireDiffPresent", true);
 		validation.put("requireOpenApiPaths", true);
 		validation.put("requireCompilePassed", true);
+		validation.put("requireUnitTestsPassed", true);
+		validation.put("requireAliasRulesInstalled", true);
 		validation.put("requireExpiryHonored", true);
 
 		run.context().put("agentDrafts", drafts);
@@ -132,9 +146,9 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 
 		return new ChangeArtifact(
 				changeId,
-				"Scripted model change after " + acceptedDraft + " draft(s): AliasPolicy + product wiring",
-				"Draft/compile/repair loop for scenario=" + run.scenario(),
-				List.of(relative, "UrlShortenerService.java"),
+				"Model change after " + acceptedDraft + " draft(s) via " + modelClient.getClass().getSimpleName(),
+				"generate→compile→test→repair for scenario=" + run.scenario(),
+				List.of(RELATIVE, "UrlShortenerService.java"),
 				diff,
 				openApi,
 				operations,
@@ -152,6 +166,12 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		run.context().put("appliedApiSpecification", artifact.apiSpecification());
 
 		Map<String, Object> ops = artifact.operations();
+		if (Boolean.TRUE.equals(ops.get("installAliasRules"))) {
+			Path classes = Path.of(String.valueOf(ops.get("workspace")), "classes");
+			installGeneratedRules(classes);
+			run.context().put("aliasRulesInstalled", true);
+		}
+
 		if (Boolean.TRUE.equals(ops.get("resetProduct"))) {
 			shortener.resetProduct();
 		}
@@ -180,15 +200,20 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 	@Override
 	public void validate(OrchestrationRun run, ChangeArtifact artifact) {
 		Map<String, Object> plan = artifact.validationPlan();
-		if (Boolean.TRUE.equals(plan.get("requireCompilePassed"))) {
+		if (Boolean.TRUE.equals(plan.get("requireCompilePassed"))
+				|| Boolean.TRUE.equals(plan.get("requireUnitTestsPassed"))) {
 			Object drafts = artifact.operations().get("drafts");
 			if (!(drafts instanceof List<?> list) || list.stream().noneMatch(d -> d instanceof Map<?, ?> m
 					&& Boolean.TRUE.equals(m.get("accepted")))) {
-				throw new IllegalStateException("Change validation failed: no accepted compiled draft");
+				throw new IllegalStateException("Change validation failed: no accepted compiled+tested draft");
 			}
 		}
+		if (Boolean.TRUE.equals(plan.get("requireAliasRulesInstalled"))
+				&& !Boolean.TRUE.equals(run.context().get("aliasRulesInstalled"))) {
+			throw new IllegalStateException("Change validation failed: AliasRules not installed into product");
+		}
 		if (Boolean.TRUE.equals(plan.get("requireDiffPresent"))
-				&& (artifact.unifiedDiff() == null || !artifact.unifiedDiff().contains("AliasPolicy"))) {
+				&& (artifact.unifiedDiff() == null || !artifact.unifiedDiff().contains("GeneratedAliasRules"))) {
 			throw new IllegalStateException("Change validation failed: real source diff missing");
 		}
 		if (Boolean.TRUE.equals(plan.get("requireOpenApiPaths"))
@@ -227,21 +252,25 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		result.put("file", file.toString());
 		int policyHits = 0;
 		int compileErrors = 0;
+		int testFailures = 0;
 		String firstProblem = "";
-		if (source.contains("Runtime.getRuntime")) {
+		if (source.contains("Runtime.getRuntime") || source.contains("ProcessBuilder")) {
 			policyHits = 1;
-			firstProblem = "[SECURITY] dangerous API Runtime.getRuntime";
+			firstProblem = "[SECURITY] dangerous API blocked";
 		}
-		else {
-			compileErrors = compile(workspace, file) ? 0 : 1;
-			if (compileErrors > 0) {
-				firstProblem = "compile failed for " + file.getFileName();
-			}
+		else if (!compile(workspace, file)) {
+			compileErrors = 1;
+			firstProblem = "compile failed for " + file.getFileName();
 		}
-		boolean accepted = policyHits == 0 && compileErrors == 0;
+		else if (!runGeneratedUnitChecks(workspace.resolve("classes"))) {
+			testFailures = 1;
+			firstProblem = "AliasRules unit checks failed";
+		}
+		boolean accepted = policyHits == 0 && compileErrors == 0 && testFailures == 0;
 		result.put("accepted", accepted);
 		result.put("policy", policyHits);
 		result.put("compile", compileErrors);
+		result.put("tests", testFailures);
 		result.put("firstProblem", firstProblem);
 		return result;
 	}
@@ -250,10 +279,11 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		try {
 			Path out = workspace.resolve("classes");
 			Files.createDirectories(out);
-			ProcessBuilder pb = new ProcessBuilder("javac", "-d", out.toString(), file.toString());
+			String cp = System.getProperty("java.class.path");
+			ProcessBuilder pb = new ProcessBuilder("javac", "-cp", cp, "-d", out.toString(), file.toString());
 			pb.redirectErrorStream(true);
 			Process p = pb.start();
-			boolean finished = p.waitFor(20, TimeUnit.SECONDS);
+			boolean finished = p.waitFor(30, TimeUnit.SECONDS);
 			return finished && p.exitValue() == 0;
 		}
 		catch (Exception ex) {
@@ -261,40 +291,42 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		}
 	}
 
-	private static String brokenAliasPolicy() {
-		return """
-				package com.agentic.generated;
-				public final class AliasPolicy {
-				  public static boolean isValid(String alias) {
-				    if (alias == null) return false
-				    return alias.matches("^[a-zA-Z0-9_-]{3,32}$");
-				  }
-				}
-				""";
+	private boolean runGeneratedUnitChecks(Path classesDir) {
+		try {
+			AliasRules rules = loadRules(classesDir);
+			if (!rules.isValid("ok-alias")) {
+				return false;
+			}
+			if (rules.isValid("ab")) { // too short
+				return false;
+			}
+			if (rules.isValid("admin")) { // reserved for generated reserved-aware builds; defaults also reject
+				return false;
+			}
+			return true;
+		}
+		catch (Exception ex) {
+			return false;
+		}
 	}
 
-	private static String validAliasPolicy(OrchestrationRun run) {
-		boolean reserved = run.requirement().toLowerCase().contains("admin")
-				|| run.requirement().toLowerCase().contains("reserved")
-				|| "brownfield".equals(run.scenario())
-				|| Boolean.TRUE.equals(run.context().get("replanApplied"));
-		return """
-				package com.agentic.generated;
-				import java.util.Locale;
-				import java.util.Set;
-				public final class AliasPolicy {
-				  private static final Set<String> RESERVED = Set.of("api", "admin", "h2-console");
-				  private AliasPolicy() {}
-				  public static boolean isValid(String alias) {
-				    if (alias == null || !alias.matches("^[a-zA-Z0-9_-]{3,32}$")) {
-				      return false;
-				    }
-				    %s
-				    return true;
-				  }
-				}
-				""".formatted(reserved
-				? "if (RESERVED.contains(alias.toLowerCase(Locale.ROOT))) { return false; }"
-				: "// reserved-word rejection optional for this scenario");
+	private void installGeneratedRules(Path classesDir) {
+		try {
+			aliasRulesHolder.install(loadRules(classesDir));
+		}
+		catch (Exception ex) {
+			throw new IllegalStateException("Unable to install generated AliasRules into product", ex);
+		}
+	}
+
+	private AliasRules loadRules(Path classesDir) throws Exception {
+		URL[] urls = { classesDir.toUri().toURL() };
+		URLClassLoader loader = new URLClassLoader(urls, AliasRules.class.getClassLoader());
+		Class<?> clazz = Class.forName(FQCN, true, loader);
+		Object instance = clazz.getDeclaredConstructor().newInstance();
+		if (!(instance instanceof AliasRules rules)) {
+			throw new IllegalStateException("Generated class does not implement AliasRules");
+		}
+		return rules;
 	}
 }

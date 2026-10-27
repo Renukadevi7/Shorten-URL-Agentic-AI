@@ -22,6 +22,8 @@ public class StageNode {
 	private final List<String> producesContext;
 	/** Context keys this stage consumes from upstream. */
 	private final List<String> consumesContext;
+	/** Registry key for StageExecutor (from JSON handler). */
+	private final String handler;
 	private final boolean completesRun;
 	private StageStatus status = StageStatus.BLOCKED;
 	private int attempts;
@@ -31,7 +33,7 @@ public class StageNode {
 	public StageNode(String id, StageType type, String title, List<String> dependsOn, boolean requiresHumanApproval,
 			int maxRetries, String fallbackStageId, boolean activationOnly, List<String> requiredEntryContext,
 			List<String> requiredExitContext, List<String> requiredExitArtifacts, List<String> producesContext,
-			List<String> consumesContext, boolean completesRun) {
+			List<String> consumesContext, String handler, boolean completesRun) {
 		this.id = id;
 		this.type = type;
 		this.title = title;
@@ -45,6 +47,7 @@ public class StageNode {
 		this.requiredExitArtifacts = List.copyOf(requiredExitArtifacts);
 		this.producesContext = List.copyOf(producesContext);
 		this.consumesContext = List.copyOf(consumesContext);
+		this.handler = handler == null || handler.isBlank() ? type.name().toLowerCase() : handler;
 		this.completesRun = completesRun;
 	}
 
@@ -100,6 +103,10 @@ public class StageNode {
 		return consumesContext;
 	}
 
+	public String handler() {
+		return handler;
+	}
+
 	public boolean completesRun() {
 		return completesRun;
 	}
@@ -151,6 +158,7 @@ public class StageNode {
 		map.put("requiredExitArtifacts", requiredExitArtifacts);
 		map.put("producesContext", producesContext);
 		map.put("consumesContext", consumesContext);
+		map.put("handler", handler);
 		map.put("maxRetries", maxRetries);
 		map.put("status", status.name());
 		map.put("attempts", attempts);
@@ -162,7 +170,7 @@ public class StageNode {
 	public StageNode withDependsOn(List<String> deps) {
 		StageNode copy = new StageNode(id, type, title, deps, requiresHumanApproval, maxRetries, fallbackStageId,
 				activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, producesContext,
-				consumesContext, completesRun);
+				consumesContext, handler, completesRun);
 		copy.status = this.status;
 		copy.attempts = this.attempts;
 		copy.output = this.output;
@@ -188,6 +196,7 @@ public class StageNode {
 		private List<String> requiredExitArtifacts = List.of();
 		private List<String> producesContext = List.of();
 		private List<String> consumesContext = List.of();
+		private String handler;
 		private boolean completesRun;
 
 		private Builder(String id, StageType type, String title) {
@@ -249,6 +258,11 @@ public class StageNode {
 			return this;
 		}
 
+		public Builder handler(String handler) {
+			this.handler = handler;
+			return this;
+		}
+
 		public Builder completesRun() {
 			this.completesRun = true;
 			return this;
@@ -258,7 +272,7 @@ public class StageNode {
 			List<String> produces = producesContext.isEmpty() ? requiredExitContext : producesContext;
 			return new StageNode(id, type, title, dependsOn, requiresHumanApproval, maxRetries, fallbackStageId,
 					activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, produces,
-					consumesContext, completesRun);
+					consumesContext, handler, completesRun);
 		}
 	}
 }

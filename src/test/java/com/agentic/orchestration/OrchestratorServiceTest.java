@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.agentic.shortener.AliasRulesHolder;
 import com.agentic.shortener.UrlShortenerService;
 
 @SpringBootTest
@@ -27,6 +28,9 @@ class OrchestratorServiceTest {
 	private UrlShortenerService shortener;
 
 	@Autowired
+	private AliasRulesHolder aliasRulesHolder;
+
+	@Autowired
 	private MetricsRegistry metricsRegistry;
 
 	@Autowired
@@ -35,6 +39,7 @@ class OrchestratorServiceTest {
 	@BeforeEach
 	void reset() {
 		shortener.resetProduct();
+		aliasRulesHolder.reset();
 	}
 
 	@Test
@@ -54,10 +59,12 @@ class OrchestratorServiceTest {
 		@SuppressWarnings("unchecked")
 		Map<String, Object> artifact = (Map<String, Object>) impl.artifacts().get("changeArtifact");
 		assertNotNull(artifact);
-		assertTrue(String.valueOf(artifact.get("unifiedDiff")).contains("AliasPolicy"));
+		assertTrue(String.valueOf(artifact.get("unifiedDiff")).contains("GeneratedAliasRules"));
 		assertTrue(String.valueOf(artifact.get("apiSpecification")).contains("openapi:"));
 		Object drafts = ((Map<?, ?>) artifact.get("operations")).get("drafts");
-		assertTrue(drafts instanceof List<?> list && list.size() >= 1);
+		assertTrue(drafts instanceof List<?> list && list.size() >= 2,
+				"repair loop should record a failed draft then an accepted draft");
+		assertEquals("ScriptedModelClient", ((Map<?, ?>) artifact.get("operations")).get("modelClient"));
 		assertTrue(run.lineage().stream().anyMatch(e -> "AGENT_PRODUCE".equals(e.kind())));
 		assertTrue(run.lineage().stream().anyMatch(e -> "AGENT_VALIDATE".equals(e.kind())));
 	}

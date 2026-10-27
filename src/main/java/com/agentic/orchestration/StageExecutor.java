@@ -1,6 +1,5 @@
 package com.agentic.orchestration;
 
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,43 +13,62 @@ import com.agentic.shortener.ShortUrl;
 import com.agentic.shortener.UrlShortenerService;
 
 /**
- * Dispatches stage work through a handler registry (no hard-coded stage-id special cases).
- * Implementation uses a pluggable {@link ChangeAgent} (produce → apply → validate).
+ * Dispatches by JSON {@code handler} name (not stage id). New stages of an existing handler
+ * need only graph JSON; a brand-new capability registers one named handler once.
  */
 @Component
 public class StageExecutor {
 
 	private final UrlShortenerService shortener;
 	private final ChangeAgent changeAgent;
-	private final Map<StageType, StageHandler> handlers = new EnumMap<>(StageType.class);
+	private final Map<String, StageHandler> handlers = new ConcurrentHashMap<>();
 
 	public StageExecutor(UrlShortenerService shortener, ChangeAgent changeAgent) {
 		this.shortener = shortener;
 		this.changeAgent = changeAgent;
-		register(StageType.REQUIREMENTS, this::requirements);
-		register(StageType.CLARIFICATION, this::replan);
-		register(StageType.REPLAN, this::replan);
-		register(StageType.ARCHITECTURE, this::architecture);
-		register(StageType.SECURITY_REVIEW, this::securityReview);
-		register(StageType.IMPLEMENTATION, this::implementation);
-		register(StageType.TESTING, (run, stage) -> testing(run, stage, false));
-		register(StageType.TESTING_FALLBACK, (run, stage) -> testing(run, stage, true));
-		register(StageType.DOCUMENTATION, this::documentation);
-		register(StageType.RELEASE_READINESS, this::release);
+		register("requirements", this::requirements);
+		register("clarification", this::replan);
+		register("replan", this::replan);
+		register("architecture", this::architecture);
+		register("securityReview", this::securityReview);
+		register("implementation", this::implementation);
+		register("testing", (run, stage) -> testing(run, stage, false));
+		register("testingFallback", (run, stage) -> testing(run, stage, true));
+		register("documentation", this::documentation);
+		register("releaseReadiness", this::release);
+		// Generic: any JSON stage can use handler=markProduces without new Java.
+		register("markProduces", this::markProduces);
 	}
 
-	private void register(StageType type, StageHandler handler) {
-		handlers.put(type, handler);
+	private void register(String name, StageHandler handler) {
+		handlers.put(name, handler);
 	}
 
 	public void execute(OrchestrationRun run, StageNode stage) {
 		maybeInjectFault(run, stage, false);
-		StageHandler handler = handlers.get(stage.type());
+		StageHandler handler = handlers.get(stage.handler());
 		if (handler == null) {
-			throw new IllegalStateException("No handler registered for stage type " + stage.type());
+			throw new IllegalStateException("No handler registered for name '" + stage.handler()
+					+ "' (stage id=" + stage.id() + ")");
 		}
 		handler.execute(run, stage);
+		// Apply declarative produces flags when the handler left them unset.
+		for (String key : stage.producesContext()) {
+			run.context().putIfAbsent(key, true);
+		}
 		carryDecision(run, stage);
+	}
+
+	/** Metadata-only stage: sets declared produces keys / a tiny artifact map. */
+	private void markProduces(OrchestrationRun run, StageNode stage) {
+		Map<String, Object> produced = new LinkedHashMap<>();
+		for (String key : stage.producesContext()) {
+			run.context().put(key, true);
+			produced.put(key, true);
+		}
+		stage.artifacts().put("produced", produced);
+		stage.setOutput("Marked produces: " + stage.producesContext());
+		run.audit(stage.id(), "MARK_PRODUCES", stage.output(), produced);
 	}
 
 	/**

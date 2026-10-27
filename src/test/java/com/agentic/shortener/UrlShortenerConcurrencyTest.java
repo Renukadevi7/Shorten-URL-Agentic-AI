@@ -23,9 +23,13 @@ class UrlShortenerConcurrencyTest {
 	@Autowired
 	private UrlShortenerService service;
 
+	@Autowired
+	private AliasRulesHolder aliasRulesHolder;
+
 	@BeforeEach
 	void reset() {
 		service.resetProduct();
+		aliasRulesHolder.reset();
 		service.enableAnalytics();
 	}
 

@@ -75,6 +75,9 @@ public class StageGraphLoader {
 		if (raw.get("consumes") instanceof List<?> list) {
 			b.consumes(list.stream().map(String::valueOf).toArray(String[]::new));
 		}
+		if (raw.get("handler") != null) {
+			b.handler(String.valueOf(raw.get("handler")));
+		}
 		return b.build();
 	}
 }

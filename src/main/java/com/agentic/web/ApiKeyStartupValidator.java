@@ -20,9 +20,25 @@ public class ApiKeyStartupValidator implements ApplicationRunner {
 
 	@Override
 	public void run(ApplicationArguments args) {
-		if (apiKey.isBlank() && !allowBlank) {
+		if (apiKey.isBlank()) {
+			if (allowBlank) {
+				return;
+			}
 			throw new IllegalStateException(
 					"agentic.api-key is blank. Set AGENTIC_API_KEY before starting the application.");
 		}
+		if (isWeak(apiKey)) {
+			throw new IllegalStateException(
+					"agentic.api-key is too weak. Use at least 16 characters and avoid placeholders.");
+		}
+	}
+
+	static boolean isWeak(String key) {
+		if (key == null || key.length() < 16) {
+			return true;
+		}
+		String lower = key.toLowerCase();
+		return lower.contains("change-me") || lower.equals("test-api-key") || lower.equals("password")
+				|| lower.equals("demo-api-key-change-me");
 	}
 }

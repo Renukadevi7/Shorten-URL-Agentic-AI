@@ -63,8 +63,7 @@ public class OrchestratorService {
 		scenarioFactory.materialize(run);
 		run.context().put("requirementFingerprint", fingerprint(requirement));
 		if (faultType != null && !faultType.isBlank()) {
-			// Legacy string forms still accepted by mapping to stageId+kind.
-			FaultSpec spec = mapLegacyFault(faultType, faultOnce);
+			FaultSpec spec = parseFault(faultType, faultOnce);
 			run.context().put("faultInjection", spec.asMap());
 			auditLog.record(run, null, "FAULT_INJECTION", "Pre-seeded fault", spec.asMap());
 		}
@@ -144,7 +143,7 @@ public class OrchestratorService {
 	}
 
 	public OrchestrationRun injectFault(String id, String faultType, boolean once) {
-		return injectFault(id, mapLegacyFault(faultType, once));
+		return injectFault(id, parseFault(faultType, once));
 	}
 
 	public OrchestrationRun injectFault(String id, FaultSpec fault) {
@@ -154,22 +153,13 @@ public class OrchestratorService {
 		return run;
 	}
 
-	/** Map legacy type names onto generic stageId+kind faults. */
-	private static FaultSpec mapLegacyFault(String faultType, boolean once) {
-		return switch (faultType) {
-			case "FAIL_TESTING" -> FaultSpec.fail("test", once);
-			case "FAIL_ALL_TESTING" -> new FaultSpec("test,test_fallback", "FAIL", once);
-			case "FAIL_AFTER_IMPL_SNAPSHOT", "FAIL_IMPLEMENTATION", "FAIL_AFTER_SNAPSHOT" ->
-					new FaultSpec("impl", "FAIL_AFTER_SNAPSHOT", once);
-			default -> {
-				// Prefer "stageId:KIND" or plain stage id with FAIL.
-				if (faultType.contains(":")) {
-					String[] parts = faultType.split(":", 2);
-					yield new FaultSpec(parts[0], parts[1], once);
-				}
-				yield FaultSpec.fail(faultType, once);
-			}
-		};
+	/** Parse {@code stageId:KIND} or {@code stageId} (defaults to FAIL). No hard-coded stage names. */
+	private static FaultSpec parseFault(String faultType, boolean once) {
+		if (faultType.contains(":")) {
+			String[] parts = faultType.split(":", 2);
+			return new FaultSpec(parts[0], parts[1], once);
+		}
+		return FaultSpec.fail(faultType, once);
 	}
 
 	public OrchestrationRun mutateUpstream(String id, String newRequirement) {

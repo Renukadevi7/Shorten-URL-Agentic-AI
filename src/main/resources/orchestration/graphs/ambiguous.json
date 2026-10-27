@@ -13,7 +13,8 @@
       "produces": [
         "requirementFingerprint",
         "normalizedProblem"
-      ]
+      ],
+      "handler": "requirements"
     },
     {
       "id": "arch",
@@ -34,7 +35,8 @@
       ],
       "produces": [
         "architectureReady"
-      ]
+      ],
+      "handler": "architecture"
     },
     {
       "id": "sec",
@@ -57,7 +59,8 @@
       ],
       "produces": [
         "securityReviewPassed"
-      ]
+      ],
+      "handler": "securityReview"
     },
     {
       "id": "impl",
@@ -84,7 +87,8 @@
       ],
       "produces": [
         "implementationDone"
-      ]
+      ],
+      "handler": "implementation"
     },
     {
       "id": "test",
@@ -106,7 +110,8 @@
       ],
       "produces": [
         "testsPassed"
-      ]
+      ],
+      "handler": "testing"
     },
     {
       "id": "test_fallback",
@@ -128,7 +133,8 @@
       ],
       "produces": [
         "testsPassed"
-      ]
+      ],
+      "handler": "testingFallback"
     },
     {
       "id": "docs",
@@ -148,7 +154,8 @@
       ],
       "produces": [
         "docsReady"
-      ]
+      ],
+      "handler": "documentation"
     },
     {
       "id": "release",
@@ -170,7 +177,8 @@
       ],
       "exitArtifacts": [
         "releaseChecklist"
-      ]
+      ],
+      "handler": "releaseReadiness"
     }
   ]
 }

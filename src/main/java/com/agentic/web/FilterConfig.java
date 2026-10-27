@@ -20,19 +20,20 @@ public class FilterConfig {
 	}
 
 	@Bean
-	FilterRegistrationBean<ApiKeyAuthFilter> apiKeyFilterRegistration(ApiKeyAuthFilter filter) {
-		FilterRegistrationBean<ApiKeyAuthFilter> bean = new FilterRegistrationBean<>();
+	FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
+		FilterRegistrationBean<RateLimitFilter> bean = new FilterRegistrationBean<>();
 		bean.setFilter(filter);
-		bean.addUrlPatterns("/*");
+		bean.addUrlPatterns("/api/*");
+		// Rate limit before auth so unauthenticated floods cannot skip the limiter.
 		bean.setOrder(1);
 		return bean;
 	}
 
 	@Bean
-	FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
-		FilterRegistrationBean<RateLimitFilter> bean = new FilterRegistrationBean<>();
+	FilterRegistrationBean<ApiKeyAuthFilter> apiKeyFilterRegistration(ApiKeyAuthFilter filter) {
+		FilterRegistrationBean<ApiKeyAuthFilter> bean = new FilterRegistrationBean<>();
 		bean.setFilter(filter);
-		bean.addUrlPatterns("/api/*");
+		bean.addUrlPatterns("/*");
 		bean.setOrder(2);
 		return bean;
 	}

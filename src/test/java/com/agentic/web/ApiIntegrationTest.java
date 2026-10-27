@@ -19,12 +19,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @SpringBootTest(properties = {
-		"agentic.api-key=test-api-key",
+		"agentic.api-key=local-test-key-16c",
 		"agentic.rate-limit.requests-per-minute=5"
 })
 class ApiIntegrationTest {
 
-	private static final String KEY = "test-api-key";
+	private static final String KEY = "local-test-key-16c";
 
 	@Autowired
 	private WebApplicationContext context;

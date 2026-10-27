@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -21,16 +20,17 @@ import jakarta.persistence.PersistenceException;
 @Service
 public class UrlShortenerService {
 
-	private static final Pattern ALIAS = Pattern.compile("^[a-zA-Z0-9_-]{3,32}$");
-
 	private final ShortUrlRepository repository;
 	private final EntityManager entityManager;
+	private final AliasRulesHolder aliasRulesHolder;
 	private final AtomicBoolean analyticsEnabled = new AtomicBoolean(true);
 	private final AtomicBoolean reliabilityEnabled = new AtomicBoolean(true);
 
-	public UrlShortenerService(ShortUrlRepository repository, EntityManager entityManager) {
+	public UrlShortenerService(ShortUrlRepository repository, EntityManager entityManager,
+			AliasRulesHolder aliasRulesHolder) {
 		this.repository = repository;
 		this.entityManager = entityManager;
+		this.aliasRulesHolder = aliasRulesHolder;
 	}
 
 	@Transactional
@@ -189,10 +189,10 @@ public class UrlShortenerService {
 			return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 		}
 		String alias = customAlias.trim();
-		if (!ALIAS.matcher(alias).matches()) {
-			throw new IllegalArgumentException("customAlias must be 3-32 chars of [A-Za-z0-9_-]");
+		if (!aliasRulesHolder.get().isValid(alias)) {
+			throw new IllegalArgumentException("customAlias rejected by AliasRules policy");
 		}
-		// Do not check-then-act; rely on primary-key uniqueness + DataIntegrityViolationException.
+		// Do not check-then-act; rely on primary-key uniqueness + PersistenceException.
 		return alias;
 	}
 

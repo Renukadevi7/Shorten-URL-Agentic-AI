@@ -3,7 +3,9 @@ package com.agentic.web;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +24,9 @@ import com.agentic.shortener.UrlShortenerService;
 
 @RestController
 public class UrlController {
+
+	private static final Set<String> RESERVED_CODES = Set.of(
+			"api", "css", "js", "h2-console", "h2", "actuator", "metrics", "favicon.ico", "robots.txt");
 
 	private final UrlShortenerService shortener;
 	private final PolicyGuardrail policyGuardrail;
@@ -79,7 +84,7 @@ public class UrlController {
 
 	@GetMapping("/{code}")
 	public ResponseEntity<Void> redirect(@PathVariable String code) {
-		if ("api".equals(code) || "css".equals(code) || "js".equals(code) || "h2-console".equals(code)) {
+		if (code != null && RESERVED_CODES.contains(code.toLowerCase(Locale.ROOT))) {
 			throw new ResponseStatusException(HttpStatus.NOT_FOUND);
 		}
 		ShortUrl url = shortener.resolve(code)
