@@ -26,7 +26,7 @@ Build an agentic SDLC control plane where orchestration quality is the different
 
 ## Risks / trade-offs
 
-- Deterministic ChangeAgent (LLM-pluggable) for offline reproducibility
+- Default `ScriptedModelClient` is a deterministic stand-in (not a live LLM); swap via `agentic.model.url` → `HttpModelClient`
 - In-memory rate limiter (single-instance prototype)
 - Orchestration state is in-process
 
@@ -34,7 +34,8 @@ Build an agentic SDLC control plane where orchestration quality is the different
 
 - Operator pastes API key into UI (not shipped in browser)
 - Human approvals for implementation and release
-- New stage *types* need a handler; new stages of existing types are JSON-only
+- New *capabilities* register one named handler once; new stages of existing handlers (and config-only `markProduces` stages) are JSON-only
+- Gate flags (`architectureReady`, `testsPassed`, …) are declared in graph `produces` / `consumes`, not hard-coded in replan/executor
 
 ## Confidential PDF history
 

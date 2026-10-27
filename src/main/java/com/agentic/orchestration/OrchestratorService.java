@@ -410,8 +410,23 @@ public class OrchestratorService {
 					"No product snapshot available; marked stage rolled back only", Map.of());
 		}
 		stage.setStatus(StageStatus.ROLLED_BACK);
-		run.context().put("implementationDone", false);
-		run.context().put("testsPassed", false);
+		// Clear gate flags via stage metadata (produces of failed stage + consumers), not hard-coded keys.
+		clearProducesMetadata(run, stage);
+	}
+
+	/** Invalidate context keys declared by the failed stage and by stages that consume them. */
+	private static void clearProducesMetadata(OrchestrationRun run, StageNode failed) {
+		StageExecutor.forceProduces(run, failed, false);
+		for (StageNode node : run.stages().values()) {
+			if (node.id().equals(failed.id())) {
+				continue;
+			}
+			boolean consumesFailed = node.consumesContext().stream()
+					.anyMatch(k -> failed.producesContext().contains(k));
+			if (consumesFailed) {
+				StageExecutor.forceProduces(run, node, false);
+			}
+		}
 	}
 
 	private boolean shouldReplan(OrchestrationRun run) {
@@ -437,6 +452,7 @@ public class OrchestratorService {
 		String replanId = "replan_" + run.stages().size();
 		StageNode replan = StageNode.builder(replanId, StageType.REPLAN, "Dynamic re-plan after upstream change")
 				.dependsOn(producerId)
+				.handler("replan")
 				.exitArtifacts("replanReason", "clarifiedRequirement")
 				.produces("requirementFingerprint", "normalizedProblem")
 				.build();

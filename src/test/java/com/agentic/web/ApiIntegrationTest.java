@@ -43,8 +43,9 @@ class ApiIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		rateLimitFilter.resetWindows();
+		// Match FilterConfig: rate limit (order 1) before auth (order 2).
 		mockMvc = MockMvcBuilders.webAppContextSetup(context)
-				.addFilters(apiKeyAuthFilter, rateLimitFilter)
+				.addFilters(rateLimitFilter, apiKeyAuthFilter)
 				.build();
 	}
 
@@ -110,5 +111,23 @@ class ApiIntegrationTest {
 		}
 		mockMvc.perform(get("/api/orchestration/runs").header("X-API-Key", KEY))
 				.andExpect(status().isTooManyRequests());
+	}
+
+	@Test
+	void rateLimitRunsBeforeAuth() throws Exception {
+		rateLimitFilter.resetWindows();
+		// Unauthenticated floods are counted (per remote addr). If auth ran first and short-circuited,
+		// the limiter would never trip and every call would stay 401.
+		for (int i = 0; i < 5; i++) {
+			mockMvc.perform(get("/api/orchestration/runs")).andExpect(status().isUnauthorized());
+		}
+		mockMvc.perform(get("/api/orchestration/runs")).andExpect(status().isTooManyRequests());
+	}
+
+	@Test
+	void reservedRedirectPathsAreNotTreatedAsCodes() throws Exception {
+		mockMvc.perform(get("/h2-console")).andExpect(status().isNotFound());
+		mockMvc.perform(get("/actuator")).andExpect(status().isNotFound());
+		mockMvc.perform(get("/metrics")).andExpect(status().isNotFound());
 	}
 }

@@ -36,10 +36,37 @@ class OrchestratorServiceTest {
 	@Autowired
 	private StageGraphLoader graphLoader;
 
+	@Autowired
+	private StageExecutor stageExecutor;
+
 	@BeforeEach
 	void reset() {
 		shortener.resetProduct();
 		aliasRulesHolder.reset();
+	}
+
+	@Test
+	void gateFlagsComeFromProducesMetadataNotHardCodedHandlerPuts() {
+		OrchestrationRun run = orchestrator.start("greenfield",
+				"Build a URL shortener with create and redirect APIs over HTTPS.");
+		assertTrue(Boolean.TRUE.equals(run.context().get("architectureReady")));
+		assertTrue(Boolean.TRUE.equals(run.context().get("securityReviewPassed")));
+		assertTrue(Boolean.TRUE.equals(run.context().get("implementationDone")));
+		assertTrue(stageExecutor.hasHandler("markProduces"));
+		assertTrue(stageExecutor.hasHandler("architecture"));
+		assertEquals("architecture", run.stages().get("arch").handler());
+		assertEquals("securityReview", run.stages().get("sec").handler());
+	}
+
+	@Test
+	void installedAliasRulesAffectProductAliasValidation() {
+		OrchestrationRun run = orchestrator.start("greenfield",
+				"Build a URL shortener with create and redirect APIs over HTTPS.");
+		assertTrue(Boolean.TRUE.equals(run.context().get("aliasRulesInstalled")));
+		org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+				() -> shortener.shorten("https://example.com/x", "admin", 60L));
+		org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+				() -> shortener.shorten("https://example.com/x", "ab", 60L));
 	}
 
 	@Test

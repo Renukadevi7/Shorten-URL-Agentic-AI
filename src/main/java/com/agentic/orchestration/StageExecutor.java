@@ -13,8 +13,10 @@ import com.agentic.shortener.ShortUrl;
 import com.agentic.shortener.UrlShortenerService;
 
 /**
- * Dispatches by JSON {@code handler} name (not stage id). New stages of an existing handler
- * need only graph JSON; a brand-new capability registers one named handler once.
+ * Dispatches by JSON {@code handler} name (not {@link StageType} and not stage id).
+ * Gate flags come from each stage's {@code produces} metadata via {@link #applyProduces};
+ * handlers must not hard-code keys such as {@code architectureReady} / {@code testsPassed}.
+ * Config-only stages use {@code handler=markProduces} with no new Java.
  */
 @Component
 public class StageExecutor {
@@ -44,6 +46,11 @@ public class StageExecutor {
 		handlers.put(name, handler);
 	}
 
+	/** Visible for tests: registered handler names. */
+	public boolean hasHandler(String name) {
+		return handlers.containsKey(name);
+	}
+
 	public void execute(OrchestrationRun run, StageNode stage) {
 		maybeInjectFault(run, stage, false);
 		StageHandler handler = handlers.get(stage.handler());
@@ -52,11 +59,23 @@ public class StageExecutor {
 					+ "' (stage id=" + stage.id() + ")");
 		}
 		handler.execute(run, stage);
-		// Apply declarative produces flags when the handler left them unset.
+		// Declarative produces: fill any keys the handler left unset (success path).
+		fillProducesIfAbsent(run, stage);
+		carryDecision(run, stage);
+	}
+
+	/** Success path: set each {@code produces} key to true unless already present. */
+	static void fillProducesIfAbsent(OrchestrationRun run, StageNode stage) {
 		for (String key : stage.producesContext()) {
 			run.context().putIfAbsent(key, true);
 		}
-		carryDecision(run, stage);
+	}
+
+	/** Failure / rollback: force every {@code produces} key to {@code value}. */
+	static void forceProduces(OrchestrationRun run, StageNode stage, boolean value) {
+		for (String key : stage.producesContext()) {
+			run.context().put(key, value);
+		}
 	}
 
 	/** Metadata-only stage: sets declared produces keys / a tiny artifact map. */
@@ -151,10 +170,11 @@ public class StageExecutor {
 		run.setNormalizedProblem(clarifiedText);
 		run.context().put("requirementVersion",
 				((Number) run.context().getOrDefault("requirementVersion", 1)).intValue() + 1);
-		run.context().put("architectureReady", false);
-		run.context().put("securityReviewPassed", false);
+		// Downstream gate flags are cleared by OrchestratorService.dynamicReplan via produces metadata —
+		// this handler must not hard-code architectureReady / testsPassed / docsReady.
 		run.context().put("replanApplied", true);
 		run.context().put("replanDerivedFrom", upstream);
+		run.context().put("normalizedProblem", clarifiedText);
 		stage.artifacts().put("replanReason", reason);
 		stage.artifacts().put("clarifiedRequirement", clarifiedText);
 		stage.artifacts().put("upstreamRequirement", upstream);
@@ -178,7 +198,6 @@ public class StageExecutor {
 		report.put("severity", "PASS");
 		report.put("changeControl", "approval gates retained");
 		stage.artifacts().put("securityFindings", report);
-		run.context().put("securityReviewPassed", true);
 		stage.setOutput("Security & change-control review passed (" + findings.size() + " checks).");
 		run.audit(stage.id(), "SECURITY_REVIEW", stage.output(), report);
 	}
@@ -195,7 +214,6 @@ public class StageExecutor {
 		design.put("version", run.context().getOrDefault("requirementVersion", 1));
 		stage.artifacts().put("architecture", design);
 		stage.setOutput("Architecture drafted with orchestration control plane and ChangeAgent contract.");
-		run.context().put("architectureReady", true);
 		run.context().put("architectureVersion", design.get("version"));
 		run.audit(stage.id(), "DESIGN", stage.output(), design);
 	}
@@ -215,7 +233,6 @@ public class StageExecutor {
 		stage.artifacts().put("agentValidation", Map.of("changeId", artifact.changeId(), "status", "PASSED"));
 		stage.artifacts().put("sampleCode", run.context().get("sampleCode"));
 		stage.setOutput("ChangeAgent produced/applied/validated change " + artifact.changeId());
-		run.context().put("implementationDone", true);
 		run.audit(stage.id(), "IMPLEMENT", stage.output(), new LinkedHashMap<>(stage.artifacts()));
 	}
 
@@ -251,13 +268,13 @@ public class StageExecutor {
 			passed = false;
 			report.append("error=").append(ex.getMessage());
 		}
-		run.context().put("testsPassed", passed);
 		stage.artifacts().put("testReport", report.toString());
 		stage.artifacts().put("passed", passed);
 		stage.artifacts().put("testPassed", passed);
 		stage.setOutput(passed ? (fallback ? "Fallback tests passed" : "Tests passed")
 				: "Tests failed: " + report);
 		if (!passed) {
+			forceProduces(run, stage, false);
 			throw new IllegalStateException("Testing stage failed validation: " + report);
 		}
 		run.audit(stage.id(), "TEST", stage.output(), Map.of("passed", passed, "fallback", fallback));
@@ -274,15 +291,19 @@ public class StageExecutor {
 				- Rate limit: agentic.rate-limit.requests-per-minute
 				""".stripIndent();
 		stage.artifacts().put("documentation", doc);
-		run.context().put("docsReady", true);
 		stage.setOutput("API documentation artifact generated.");
 		run.audit(stage.id(), "DOCS", stage.output(), Map.of());
 	}
 
 	private void release(OrchestrationRun run, StageNode stage) {
 		Map<String, Object> checklist = new LinkedHashMap<>();
-		checklist.put("testsPassed", run.context().get("testsPassed"));
-		checklist.put("docsReady", run.context().get("docsReady"));
+		// Checklist keys come from this stage's declared consumes — not a hard-coded list.
+		for (String key : stage.consumesContext()) {
+			checklist.put(key, run.context().get(key));
+		}
+		for (String key : stage.requiredEntryContext()) {
+			checklist.putIfAbsent(key, run.context().get(key));
+		}
 		checklist.put("analyticsEnabled", shortener.isAnalyticsEnabled());
 		checklist.put("reliabilityEnabled", shortener.isReliabilityEnabled());
 		checklist.put("sampleCode", run.context().get("sampleCode"));
@@ -300,13 +321,14 @@ public class StageExecutor {
 				.computeIfAbsent("decisions", k -> new ConcurrentHashMap<String, Object>());
 		Map<String, Object> entry = new LinkedHashMap<>();
 		entry.put("stageId", stage.id());
+		entry.put("handler", stage.handler());
 		entry.put("type", stage.type().name());
 		entry.put("output", stage.output());
 		entry.put("artifacts", new LinkedHashMap<>(stage.artifacts()));
 		entry.put("recordedAtMs", System.currentTimeMillis());
 		decisions.put(stage.id(), entry);
 		run.context().put("lastStageId", stage.id());
-		run.context().put("lastStageType", stage.type().name());
+		run.context().put("lastStageHandler", stage.handler());
 	}
 
 	private static void sleep(long ms) {

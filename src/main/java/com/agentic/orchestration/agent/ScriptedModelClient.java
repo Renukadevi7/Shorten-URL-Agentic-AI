@@ -2,14 +2,11 @@ package com.agentic.orchestration.agent;
 
 import java.util.Map;
 
-import org.springframework.stereotype.Component;
-
 /**
- * Deterministic stand-in for an LLM. Attempt 1 returns a broken draft so the repair loop is exercised;
- * attempt 2+ returns valid source derived from the requirement. Replace this bean with an HTTP LLM client
- * without changing ChangeAgent or the orchestrator.
+ * Deterministic stand-in for an LLM (not a live model call). Attempt 1 returns a broken draft so the
+ * repair loop is exercised; attempt 2+ returns valid source. Wired as the default via
+ * {@link ModelClientConfig}; set {@code agentic.model.url} to use {@link HttpModelClient} instead.
  */
-@Component
 public class ScriptedModelClient implements ModelClient {
 
 	@Override

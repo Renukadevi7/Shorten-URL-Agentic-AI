@@ -66,18 +66,27 @@ public class PolicyGuardrail {
 
 	public List<PolicyDecision> evaluateRelease(OrchestrationRun run) {
 		List<PolicyDecision> decisions = new ArrayList<>();
-		decisions.add(boolCtx(run, "testsPassed", "QUALITY_TESTS",
-				"Quality/change-control: tests must pass before release",
-				"Tests passed before release"));
-		decisions.add(boolCtx(run, "docsReady", "CHANGE_DOCS",
-				"Change-control: documentation artifact required before release",
-				"Documentation artifact present"));
-		decisions.add(boolCtx(run, "implementationDone", "CHANGE_IMPL",
-				"Change-control: implementation must be complete",
-				"Implementation marked complete"));
-		decisions.add(boolCtx(run, "securityReviewPassed", "SECURITY_REVIEW",
-				"Security: SECURITY_REVIEW stage must pass before release",
-				"Security review passed"));
+		// Gate keys come from the completesRun stage metadata (entry/consumes), not a hard-coded list.
+		StageNode release = run.stages().values().stream()
+				.filter(StageNode::completesRun)
+				.findFirst()
+				.orElse(null);
+		if (release == null) {
+			decisions.add(block("RELEASE_STAGE", "Change-control: no completesRun stage in graph"));
+		}
+		else {
+			java.util.LinkedHashSet<String> gates = new java.util.LinkedHashSet<>();
+			gates.addAll(release.requiredEntryContext());
+			gates.addAll(release.consumesContext());
+			if (gates.isEmpty()) {
+				decisions.add(block("RELEASE_GATES", "Change-control: release stage declares no entry/consumes gates"));
+			}
+			for (String key : gates) {
+				decisions.add(boolCtx(run, key, "RELEASE_GATE_" + key,
+						"Change-control: required context '" + key + "' must be true before release",
+						"Release gate satisfied: " + key));
+			}
+		}
 
 		Object sample = run.context().get("sampleUrl");
 		if (sample instanceof String url) {

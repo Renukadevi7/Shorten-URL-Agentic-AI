@@ -169,11 +169,15 @@
       "completesRun": true,
       "consumes": [
         "testsPassed",
-        "docsReady"
+        "docsReady",
+        "implementationDone",
+        "securityReviewPassed"
       ],
       "entryContext": [
         "testsPassed",
-        "docsReady"
+        "docsReady",
+        "implementationDone",
+        "securityReviewPassed"
       ],
       "exitArtifacts": [
         "releaseChecklist"
