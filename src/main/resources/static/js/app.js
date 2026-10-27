@@ -55,7 +55,12 @@ async function refreshMetrics() {
   }
   const res = await fetch("/api/orchestration/metrics", { headers: headers(false) });
   if (!res.ok) {
-    metricsView.innerHTML = `<div class="small" style="color:#b91c1c">Metrics unavailable (${res.status}). Check API key.</div>`;
+    const hint = res.status === 429
+      ? "Rate limit exceeded — wait ~1 minute or raise AGENTIC_RATE_LIMIT, then refresh."
+      : res.status === 401
+        ? "Unauthorized — API key must match AGENTIC_API_KEY."
+        : `Metrics unavailable (${res.status}).`;
+    metricsView.innerHTML = `<div class="small" style="color:#b91c1c">${hint}</div>`;
     return;
   }
   const data = await res.json();
