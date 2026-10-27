@@ -16,7 +16,13 @@ public class ModelClientConfig {
 	@Primary
 	ModelClient modelClient(
 			@Value("${agentic.model.url:}") String modelUrl,
-			@Value("${agentic.model.api-key:}") String modelApiKey) {
+			@Value("${agentic.model.api-key:}") String modelApiKey,
+			@Value("${agentic.model.force-fail:false}") boolean forceFail) {
+		if (forceFail) {
+			// Test hook: every draft is invalid so ChangeAgent exhausts the 3-attempt repair loop.
+			return (relativePath, requirement, scenario, attempt, hints) ->
+					"package broken; public class X { this is not valid java ;;;";
+		}
 		if (modelUrl != null && !modelUrl.isBlank()) {
 			return new HttpModelClient(modelUrl.trim(), modelApiKey);
 		}

@@ -44,13 +44,16 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 	private final PolicyGuardrail policyGuardrail;
 	private final ModelClient modelClient;
 	private final AliasRulesHolder aliasRulesHolder;
+	private final OpenApiFromCodeGenerator openApiFromCodeGenerator;
 
 	public ScriptedModelChangeAgent(UrlShortenerService shortener, PolicyGuardrail policyGuardrail,
-			ModelClient modelClient, AliasRulesHolder aliasRulesHolder) {
+			ModelClient modelClient, AliasRulesHolder aliasRulesHolder,
+			OpenApiFromCodeGenerator openApiFromCodeGenerator) {
 		this.shortener = shortener;
 		this.policyGuardrail = policyGuardrail;
 		this.modelClient = modelClient;
 		this.aliasRulesHolder = aliasRulesHolder;
+		this.openApiFromCodeGenerator = openApiFromCodeGenerator;
 	}
 
 	@Override
@@ -108,21 +111,8 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 				%s
 				""".formatted(RELATIVE, RELATIVE, RELATIVE, finalSource);
 
-		String openApi = """
-				openapi: 3.0.3
-				info:
-				  title: Agentic URL Shortener API
-				  version: 1.0.0
-				paths:
-				  /api/urls:
-				    post: { summary: Create short URL with alias/TTL }
-				  /{code}:
-				    get: { summary: Redirect }
-				  /api/urls/{code}:
-				    delete: { summary: Soft-delete }
-				  /api/urls/{code}/stats:
-				    get: { summary: Click analytics }
-				""";
+		// OpenAPI is derived from live Spring MVC mappings (actual controller code).
+		String openApi = openApiFromCodeGenerator.toYaml();
 
 		boolean brownfield = "brownfield".equals(run.scenario())
 				|| run.requirement().toLowerCase().contains("analytics");
@@ -133,6 +123,7 @@ public class ScriptedModelChangeAgent implements ChangeAgent {
 		operations.put("acceptedDraft", acceptedDraft);
 		operations.put("drafts", drafts);
 		operations.put("modelClient", modelClient.getClass().getSimpleName());
+		operations.put("openApiSource", "RequestMappingHandlerMapping");
 		operations.put("installAliasRules", true);
 		operations.put("generatedClass", FQCN);
 		operations.put("aliasCasesFile", casesFile.toString());

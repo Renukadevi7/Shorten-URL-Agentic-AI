@@ -88,10 +88,14 @@ class OrchestratorServiceTest {
 		assertNotNull(artifact);
 		assertTrue(String.valueOf(artifact.get("unifiedDiff")).contains("GeneratedAliasRules"));
 		assertTrue(String.valueOf(artifact.get("apiSpecification")).contains("openapi:"));
+		assertTrue(String.valueOf(artifact.get("apiSpecification")).contains("Generated from live Spring MVC"));
+		assertTrue(String.valueOf(artifact.get("apiSpecification")).contains("/api/urls"));
 		Object drafts = ((Map<?, ?>) artifact.get("operations")).get("drafts");
 		assertTrue(drafts instanceof List<?> list && list.size() >= 2,
 				"repair loop should record a failed draft then an accepted draft");
 		assertEquals("ScriptedModelClient", ((Map<?, ?>) artifact.get("operations")).get("modelClient"));
+		assertEquals("RequestMappingHandlerMapping",
+				((Map<?, ?>) artifact.get("operations")).get("openApiSource"));
 		assertEquals(true, ((Map<?, ?>) artifact.get("operations")).get("unitChecksIsolatedJvm"));
 		assertNotNull(((Map<?, ?>) artifact.get("operations")).get("aliasCasesFile"));
 		@SuppressWarnings("unchecked")
@@ -150,9 +154,10 @@ class OrchestratorServiceTest {
 	@Test
 	void postSnapshotImplFaultRollsBackProductData() {
 		shortener.shorten("https://example.com/prior", "priorurl", 3600L);
+		// Fault both primary and fallback impl so recovery cannot skip rollback via impl_fallback.
 		OrchestrationRun run = orchestrator.start("greenfield",
 				"Build a URL shortener with create and redirect APIs over HTTPS.",
-				"impl:FAIL_AFTER_SNAPSHOT", false);
+				"impl,impl_fallback:FAIL_AFTER_SNAPSHOT", false);
 		assertEquals(RunStatus.SAFE_STOPPED, run.status());
 		assertTrue(run.lineage().stream().anyMatch(e -> "ROLLBACK".equals(e.kind())));
 		assertTrue(shortener.resolve("priorurl").isPresent(), "rollback must restore prior URL row");

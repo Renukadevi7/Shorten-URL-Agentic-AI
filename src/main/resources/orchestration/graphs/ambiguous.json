@@ -88,6 +88,35 @@
       "produces": [
         "implementationDone"
       ],
+      "fallbackStageId": "impl_fallback",
+      "handler": "implementation"
+    },
+    {
+      "id": "impl_fallback",
+      "type": "IMPLEMENTATION",
+      "title": "Fallback implementation after model draft exhaustion",
+      "dependsOn": [
+        "sec"
+      ],
+      "activationOnly": true,
+      "consumes": [
+        "architectureReady",
+        "securityReviewPassed"
+      ],
+      "entryContext": [
+        "architectureReady",
+        "securityReviewPassed"
+      ],
+      "exitContext": [
+        "implementationDone"
+      ],
+      "exitArtifacts": [
+        "changeArtifact",
+        "agentValidation"
+      ],
+      "produces": [
+        "implementationDone"
+      ],
       "handler": "implementation"
     },
     {

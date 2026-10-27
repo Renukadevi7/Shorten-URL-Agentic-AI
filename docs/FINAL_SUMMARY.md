@@ -7,9 +7,10 @@ Build an agentic SDLC control plane where orchestration quality is the different
 ## What the default model is (and is not)
 
 - **Default model client is scripted.** `ScriptedModelClient` is a deterministic stand-in: draft 1 is intentionally broken (missing semicolon) so the repair loop is exercised; draft 2+ returns valid `GeneratedAliasRules` source. **No live LLM is called** unless you set `agentic.model.url`.
-- **Optional live client:** `HttpModelClient` (Bearer from `AGENTIC_MODEL_API_KEY` / `agentic.model.api-key`; non-local URLs must be `https://`).
-- **What has been run here:** `./mvnw test` (unit/integration suite) and local `spring-boot:run` demos against the scripted client.
-- **What has not been run / claimed:** end-to-end calls against a production LLM provider; load/chaos beyond the in-suite fault-injection paths; multi-node rate limiting.
+- **Optional live client:** `HttpModelClient` (Bearer from `AGENTIC_MODEL_API_KEY` / `agentic.model.api-key`; non-local URLs must be `https://`). Covered by `HttpModelClientEndToEndTest` against a real local HTTP server.
+- **OpenAPI** in ChangeAgent artifacts is generated from live Spring MVC mappings (`OpenApiFromCodeGenerator`), not a hard-coded string.
+- **What has been run here:** `./mvnw test` (including live HTTP model path, all-drafts-fail retry/fallback/rollback) and local `spring-boot:run` demos against the scripted client.
+- **What has not been run / claimed:** calls against a production third-party LLM vendor; multi-node rate limiting.
 
 ## Artifacts
 
@@ -51,5 +52,4 @@ Build an agentic SDLC control plane where orchestration quality is the different
 
 ## Confidential PDF history
 
-- `docs/assignment.pdf` and the old committed default API key are **not** in the current tree.
-- Older commits may still contain PDF blobs. Before public promotion, run history rewrite (`git filter-repo --path docs/assignment.pdf --invert-paths`) and force-push; ask collaborators to re-clone.
+- Confidential PDFs (`docs/assignment.pdf`, `docs/Hiring_Manager_Walkthrough.pdf`, personal overview PDFs) are removed from the tree and purged from git history via `git filter-repo` (force-push required for remotes).
