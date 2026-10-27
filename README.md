@@ -101,7 +101,3 @@ X-API-Key: <AGENTIC_API_KEY>
 
 - `docs/ARCHITECTURE.md` — component map
 - `docs/FINAL_SUMMARY.md` — claims, evidence, scripted-model honesty, limitations
-
-## Bundle
-
-`Renukadevi.bundle` (gitignored) is a full-history git bundle for offline hand-in when needed.
