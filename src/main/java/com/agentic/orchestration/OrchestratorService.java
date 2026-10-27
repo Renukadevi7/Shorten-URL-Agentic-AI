@@ -48,16 +48,30 @@ public class OrchestratorService {
 	}
 
 	public OrchestrationRun start(String scenario, String requirement) {
+		return start(scenario, requirement, null, true);
+	}
+
+	public OrchestrationRun start(String scenario, String requirement, String faultType, boolean faultOnce) {
 		List<String> violations = policyGuardrail.validateRequirement(requirement);
 		if (!violations.isEmpty()) {
 			throw new IllegalArgumentException("Policy guardrail blocked start: " + String.join("; ", violations));
 		}
 
 		OrchestrationRun run = new OrchestrationRun(UUID.randomUUID().toString().substring(0, 8), scenario, requirement);
+		List<PolicyDecision> policyDecisions = policyGuardrail.evaluateRequirement(requirement);
+		run.context().put("requirementPolicy", policyGuardrail.auditBundle(policyDecisions));
 		scenarioFactory.materialize(run);
 		run.context().put("requirementFingerprint", fingerprint(requirement));
+		if (faultType != null && !faultType.isBlank()) {
+			run.context().put("faultInjection", faultType);
+			run.context().put("faultOnce", faultOnce);
+			auditLog.record(run, null, "FAULT_INJECTION", "Pre-seeded fault " + faultType, Map.of("once", faultOnce));
+		}
+		auditLog.record(run, null, "POLICY_EVAL", "Requirement policy allow/block decisions",
+				policyGuardrail.auditBundle(policyDecisions));
 		auditLog.record(run, null, "RUN_STARTED", "Scenario materialized with dependency graph",
-				Map.of("scenario", scenario, "graph", run.context().get("stageGraph")));
+				Map.of("scenario", scenario, "graph", run.context().get("stageGraph"),
+						"stageGraphSource", run.context().get("stageGraphSource")));
 		runs.put(run.id(), run);
 		metricsRegistry.onStart();
 		advance(run.id());
@@ -141,13 +155,24 @@ public class OrchestratorService {
 		String oldFp = String.valueOf(run.context().get("requirementFingerprint"));
 		run.context().put("previousRequirement", run.requirement());
 		run.context().put("upstreamRequirement", newRequirement);
+		run.setRequirement(newRequirement);
 		run.context().put("requirementFingerprint", fingerprint(newRequirement));
 		run.context().put("replanReason", "Upstream requirement fingerprint changed: " + oldFp + " -> "
 				+ run.context().get("requirementFingerprint"));
 		auditLog.record(run, null, "UPSTREAM_CHANGED", "Upstream output/requirement changed; scheduling replan",
-				Map.of("oldFingerprint", oldFp, "newFingerprint", run.context().get("requirementFingerprint")));
+				Map.of("oldFingerprint", oldFp, "newFingerprint", run.context().get("requirementFingerprint"),
+						"upstreamRequirement", newRequirement));
+		// Upstream change invalidates in-flight approvals; force a running replan wave.
+		if (run.awaitingStageId() != null) {
+			StageNode paused = run.stages().get(run.awaitingStageId());
+			if (paused != null && paused.status() == StageStatus.AWAITING_APPROVAL) {
+				paused.setStatus(StageStatus.BLOCKED);
+				paused.resetAttempts();
+			}
+			run.setAwaitingStageId(null);
+		}
 		dynamicReplan(run);
-		if (run.status() != RunStatus.AWAITING_APPROVAL && !isTerminal(run.status())) {
+		if (!isTerminal(run.status())) {
 			run.setStatus(RunStatus.RUNNING);
 			advance(run.id());
 		}
@@ -209,15 +234,18 @@ public class OrchestratorService {
 
 			stage.setStatus(StageStatus.RUNNING);
 			stage.incrementAttempts();
+			long enteredAt = System.currentTimeMillis();
+			stage.artifacts().put("enteredAtMs", enteredAt);
 			auditLog.record(run, stage.id(), "STAGE_ENTER",
 					"Entering stage " + stage.title() + " on " + Thread.currentThread().getName(),
 					Map.of("attempt", stage.attempts(), "thread", Thread.currentThread().getName(),
-							"enteredAtMs", System.currentTimeMillis()));
+							"enteredAtMs", enteredAt));
 		}
 
 		try {
 			stageExecutor.execute(run, stage);
 			synchronized (run) {
+				stage.artifacts().put("exitedAtMs", System.currentTimeMillis());
 				exitGate(run, stage);
 			}
 		}

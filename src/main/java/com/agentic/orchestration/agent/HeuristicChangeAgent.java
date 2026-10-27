@@ -82,8 +82,11 @@ public class HeuristicChangeAgent implements ChangeAgent {
 
 	@Override
 	public void apply(OrchestrationRun run, ChangeArtifact artifact) {
-		ProductSnapshot before = shortener.snapshot();
-		run.context().put("productSnapshotBeforeImpl", before.asMap());
+		// Keep the first pre-change snapshot across retries so rollback restores true baseline.
+		if (run.context().get("productSnapshotBeforeImpl") == null) {
+			ProductSnapshot before = shortener.snapshot();
+			run.context().put("productSnapshotBeforeImpl", before.asMap());
+		}
 		run.context().put("changeArtifact", artifact.asMap());
 		run.context().put("appliedUnifiedDiff", artifact.unifiedDiff());
 		run.context().put("appliedApiSpecification", artifact.apiSpecification());

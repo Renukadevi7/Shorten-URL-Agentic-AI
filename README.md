@@ -30,7 +30,7 @@ $env:AGENTIC_API_KEY="your-local-secret"
 
 Optional local override file (gitignored): copy `application-local.properties.example` to `application-local.properties`.
 
-Open [http://127.0.0.1:43127](http://127.0.0.1:43127). The UI auto-fills the API key from the same server env value (no secret is committed). If you still see auth errors, hard-refresh the page so a stale browser key is replaced.
+Open [http://127.0.0.1:43127](http://127.0.0.1:43127) and paste the same `AGENTIC_API_KEY` into the UI field (the key is never embedded in HTML/JS).
 
 Mutating APIs require:
 

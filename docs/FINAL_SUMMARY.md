@@ -1,51 +1,42 @@
 # Final Engineering Summary
 
-## Design decisions
+## Plan
 
-- Treat orchestration as the product: declarative JSON stage graphs, metadata-driven gates, pluggable `ChangeAgent`.
-- Deterministic `HeuristicChangeAgent` produces a **unified source diff** and **OpenAPI 3** spec, applies product mutations under snapshot, and validates (HTTPS, resolve, expiry, policy, artifact presence). An LLM agent can replace the bean without engine changes.
-- Graphs live under `src/main/resources/orchestration/graphs/`; the `SECURITY_REVIEW` stage was added via JSON to prove the engine does not hard-code stage ids.
-- MTTR is measured as failure→recovery; end-to-end latency remains a separate full-run metric.
+Build an agentic SDLC control plane where orchestration quality is the differentiator: declarative graphs, metadata gates, pluggable ChangeAgent (diff + OpenAPI), concurrent waves, recovery, policy allow/block audit, and honest metrics.
 
-## Artifacts produced
+## Artifacts
 
-- Spring Boot app on port `43127` (`./mvnw spring-boot:run` with `AGENTIC_API_KEY`)
-- Orchestration + URL APIs (alias, TTL, delete, stats, H2 file persistence, auth, rate limit)
-- Scenarios: greenfield, brownfield, ambiguous
-- Tests: ChangeAgent artifacts, concurrency overlap, fallback/MTTR, rollback/safe-stop, auth 401, rate-limit 429, expiry
-- `docs/ARCHITECTURE.md`, this summary, README setup
+- Runnable Spring Boot app (`AGENTIC_API_KEY` required; port `43127`)
+- JSON stage graphs for greenfield / brownfield / ambiguous
+- Tests that assert fallback recovery, product rollback, overlapping stage windows, MTTR≠latency-as-MTTR, auth 401, rate-limit 429, expiry, ChangeAgent artifacts, requirement-derived replan
 
-## Validation evidence
+## Validation evidence (from `./mvnw test`)
 
-| Requirement | Evidence |
+| Claim | Test / proof |
 | --- | --- |
-| Real ChangeAgent | Lineage `AGENT_PRODUCE`/`APPLY`/`VALIDATE`; stage artifacts include `unifiedDiff` + `apiSpecification` |
-| Generic orchestration | `sec` SECURITY_REVIEW stage only in JSON; dynamic replan finds ARCHITECTURE by type |
-| Concurrent sync | `PARALLEL_WAVE` + `orch-parallel` threads for test∥docs |
-| Recovery | `FAIL_TESTING` → retries/fallback or ROLLBACK + SAFE_STOPPED; `RECOVERY` carries `mttrMs` |
-| Metrics | MTTR samples increase on recovery; latency ≥ MTTR; documented definitions |
-| Security | Unauthorized → 401; H2 console off; no committed API key; PDF removed from tree |
-| URL features | alias, TTL/expiry, delete, auth, rate limit, H2 |
+| ChangeAgent diff + OpenAPI | `implementationUsesChangeAgentDiffAndOpenApiArtifacts` |
+| Config-only stage | `graphJsonAddsSecurityStageWithoutEngineHardCodes` (`sec` in JSON) |
+| Concurrent overlap | `parallelStagesHaveOverlappingExecutionWindows` |
+| Fallback recovery | `faultInjectionRequiresSuccessfulFallbackRecovery` (requires FALLBACK + RECOVERY + skipped primary) |
+| Real rollback of DB state | `postSnapshotImplFaultRollsBackProductData` (`priorurl` restored) |
+| MTTR on recovery only | recovery event `mttrMs`; `onFail` records latency only |
+| Ambiguous replan from new req | `ambiguousMutateUpstreamDerivesReplanFromNewRequirement` |
+| Auth / rate limit | `ApiIntegrationTest` |
+| Policy allow/block | `PolicyGuardrailTest` + `POLICY_EVAL` lineage |
 
 ## Risks / trade-offs
 
-- Default agent is deterministic (offline-reproducible) rather than a hosted LLM.
-- In-process orchestration state; product data is H2 file.
-- UI may bootstrap the runtime API key locally for demo DX (value still from env, not git).
+- Deterministic ChangeAgent (LLM-pluggable) for offline reproducibility
+- In-memory rate limiter (single-instance prototype)
+- Orchestration state is in-process
 
-## Assumptions
+## Assumptions / limitations
 
-- Operator sets `AGENTIC_API_KEY` and can approve Implementation / Release.
-- Demo hosts use public HTTPS URLs.
+- Operator pastes API key into UI (not shipped in browser)
+- Human approvals for implementation and release
+- New stage *types* need a handler; new stages of existing types are JSON-only
 
-## Limitations
+## Confidential PDF history
 
-- No IdP/SSO; API key only.
-- New *stage types* still need a handler registration; new *stages of existing types* are JSON-only.
-- Not a clustered orchestrator.
-
-## Confidential PDF / git history assessment
-
-- `docs/assignment.pdf` is **removed from the current tree** (deleted in commit history as a normal file delete).
-- Blobs may still exist in older commits. If the public GitHub remote ever contained that PDF, treat history as leaked: rotate any secrets that appeared in the PDF, and rewrite history with `git filter-repo` (or BFG) before final public promotion — then force-push and ask collaborators to re-clone.
-- This Origin-backed working copy should not republish the PDF; do not restore it.
+- Removed from working tree.
+- Older commits may still contain `docs/assignment.pdf` blobs. Before public promotion, run history rewrite (`git filter-repo --path docs/assignment.pdf --invert-paths`) and force-push; ask collaborators to re-clone.

@@ -13,13 +13,8 @@ const PRESETS = {
 
 let currentRunId = null;
 
-// Prefer server-injected bootstrap (same value the filter uses) over a stale session key.
-const bootstrapKey = (apiKeyEl.dataset.bootstrap || "").trim();
-const savedKey = (sessionStorage.getItem("agenticApiKey") || "").trim();
-apiKeyEl.value = bootstrapKey || savedKey;
-if (bootstrapKey) {
-  sessionStorage.setItem("agenticApiKey", bootstrapKey);
-}
+// Operator-supplied key only — never read a privileged secret from page HTML.
+apiKeyEl.value = (sessionStorage.getItem("agenticApiKey") || "").trim();
 if (apiKeyEl.dataset.configured === "false") {
   statusEl.textContent = "no API key on server";
 }

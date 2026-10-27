@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
 
@@ -71,12 +72,8 @@ public class StageExecutor {
 			}
 			throw new IllegalStateException("Fault injection: FAIL_ALL_TESTING");
 		}
-		if ("FAIL_IMPLEMENTATION".equals(faultType) && stage.type() == StageType.IMPLEMENTATION) {
-			if (once) {
-				run.context().remove("faultInjection");
-			}
-			throw new IllegalStateException("Fault injection: FAIL_IMPLEMENTATION");
-		}
+		// FAIL_IMPLEMENTATION / FAIL_AFTER_IMPL_SNAPSHOT are handled inside implementation()
+		// after the pre-change snapshot is captured, so rollback can restore product state.
 	}
 
 	private void requirements(OrchestrationRun run, StageNode stage) {
@@ -108,17 +105,39 @@ public class StageExecutor {
 
 	private void replan(OrchestrationRun run, StageNode stage) {
 		String reason = String.valueOf(run.context().getOrDefault("replanReason", "Upstream output changed"));
-		String clarified = "Re-planned scope after upstream change: keep create/redirect/stats, enforce HTTPS sample, "
-				+ "retain auth + rate-limit, refresh architecture decisions.";
-		run.setNormalizedProblem(clarified);
+		String upstream = String.valueOf(run.context().getOrDefault("upstreamRequirement", run.requirement()));
+		String lower = upstream.toLowerCase();
+		StringBuilder clarified = new StringBuilder("Re-planned from upstream requirement: ");
+		clarified.append(upstream.trim());
+		clarified.append(" | derived scope:");
+		if (lower.contains("https")) {
+			clarified.append(" HTTPS-only samples;");
+		}
+		if (lower.contains("stat") || lower.contains("analytics")) {
+			clarified.append(" click analytics/stats;");
+		}
+		if (lower.contains("delete") || lower.contains("expir") || lower.contains("ttl")) {
+			clarified.append(" delete/expiry controls;");
+		}
+		if (lower.contains("alias")) {
+			clarified.append(" custom aliases;");
+		}
+		clarified.append(" retain auth + rate-limit; refresh architecture.");
+		String clarifiedText = clarified.toString();
+		run.setNormalizedProblem(clarifiedText);
 		run.context().put("requirementVersion",
 				((Number) run.context().getOrDefault("requirementVersion", 1)).intValue() + 1);
 		run.context().put("architectureReady", false);
+		run.context().put("securityReviewPassed", false);
 		run.context().put("replanApplied", true);
+		run.context().put("replanDerivedFrom", upstream);
 		stage.artifacts().put("replanReason", reason);
-		stage.artifacts().put("clarifiedRequirement", clarified);
-		stage.setOutput(clarified);
-		run.audit(stage.id(), "REPLAN", reason, Map.of("newRequirementVersion", run.context().get("requirementVersion")));
+		stage.artifacts().put("clarifiedRequirement", clarifiedText);
+		stage.artifacts().put("upstreamRequirement", upstream);
+		stage.setOutput(clarifiedText);
+		run.audit(stage.id(), "REPLAN", reason, Map.of(
+				"newRequirementVersion", run.context().get("requirementVersion"),
+				"upstreamRequirement", upstream));
 	}
 
 	private void securityReview(OrchestrationRun run, StageNode stage) {
@@ -163,6 +182,8 @@ public class StageExecutor {
 		changeAgent.apply(run, artifact);
 		run.audit(stage.id(), "AGENT_APPLY", "Applied change " + artifact.changeId(),
 				Map.of("changeId", artifact.changeId(), "filesTouched", artifact.filesTouched()));
+		// Snapshot is now captured — faults here exercise true product rollback.
+		injectPostSnapshotImplFault(run);
 		changeAgent.validate(run, artifact);
 		run.audit(stage.id(), "AGENT_VALIDATE", "Validated change " + artifact.changeId(), artifact.validationPlan());
 
@@ -172,6 +193,21 @@ public class StageExecutor {
 		stage.setOutput("ChangeAgent produced/applied/validated change " + artifact.changeId());
 		run.context().put("implementationDone", true);
 		run.audit(stage.id(), "IMPLEMENT", stage.output(), new LinkedHashMap<>(stage.artifacts()));
+	}
+
+	private void injectPostSnapshotImplFault(OrchestrationRun run) {
+		Object fault = run.context().get("faultInjection");
+		if (!(fault instanceof String faultType)) {
+			return;
+		}
+		if (!"FAIL_IMPLEMENTATION".equals(faultType) && !"FAIL_AFTER_IMPL_SNAPSHOT".equals(faultType)) {
+			return;
+		}
+		boolean once = !Boolean.FALSE.equals(run.context().get("faultOnce"));
+		if (once) {
+			run.context().remove("faultInjection");
+		}
+		throw new IllegalStateException("Fault injection: " + faultType + " after pre-change snapshot");
 	}
 
 	private void testing(OrchestrationRun run, StageNode stage, boolean fallback) {
@@ -252,12 +288,13 @@ public class StageExecutor {
 	private void carryDecision(OrchestrationRun run, StageNode stage) {
 		@SuppressWarnings("unchecked")
 		Map<String, Object> decisions = (Map<String, Object>) run.context()
-				.computeIfAbsent("decisions", k -> new LinkedHashMap<String, Object>());
+				.computeIfAbsent("decisions", k -> new ConcurrentHashMap<String, Object>());
 		Map<String, Object> entry = new LinkedHashMap<>();
 		entry.put("stageId", stage.id());
 		entry.put("type", stage.type().name());
 		entry.put("output", stage.output());
 		entry.put("artifacts", new LinkedHashMap<>(stage.artifacts()));
+		entry.put("recordedAtMs", System.currentTimeMillis());
 		decisions.put(stage.id(), entry);
 		run.context().put("lastStageId", stage.id());
 		run.context().put("lastStageType", stage.type().name());

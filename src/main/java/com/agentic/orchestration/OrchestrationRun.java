@@ -13,7 +13,7 @@ public class OrchestrationRun {
 
 	private final String id;
 	private final String scenario;
-	private final String requirement;
+	private volatile String requirement;
 	private final Instant startedAt;
 	private Instant endedAt;
 	private RunStatus status = RunStatus.PENDING;
@@ -44,6 +44,10 @@ public class OrchestrationRun {
 
 	public String requirement() {
 		return requirement;
+	}
+
+	public void setRequirement(String requirement) {
+		this.requirement = requirement;
 	}
 
 	public Instant startedAt() {
