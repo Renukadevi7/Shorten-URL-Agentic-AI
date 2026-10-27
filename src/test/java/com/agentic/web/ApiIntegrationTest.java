@@ -24,7 +24,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 })
 class ApiIntegrationTest {
 
-	/** Forced via @SpringBootTest so local AGENTIC_API_KEY env cannot override tests. */
 	private static final String KEY = "test-api-key";
 
 	@Autowired
@@ -75,7 +74,10 @@ class ApiIntegrationTest {
 	}
 
 	@Test
-	void orchestrationStartAndMetrics() throws Exception {
+	void orchestrationStartAndMetricsRequireAuth() throws Exception {
+		mockMvc.perform(get("/api/orchestration/metrics")).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/config")).andExpect(status().isUnauthorized());
+
 		mockMvc.perform(post("/api/orchestration/runs").header("X-API-Key", KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(
@@ -83,16 +85,20 @@ class ApiIntegrationTest {
 				.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("AWAITING_APPROVAL"))
 				.andExpect(jsonPath("$.awaitingStageId").value("impl"));
 
-		mockMvc.perform(get("/api/orchestration/metrics")).andExpect(status().isOk())
+		mockMvc.perform(get("/api/orchestration/metrics").header("X-API-Key", KEY)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.reliability.runsStarted").exists());
+		mockMvc.perform(get("/api/config").header("X-API-Key", KEY)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.ok").value(true));
 	}
 
 	@Test
-	void rejectsWrongApiKey() throws Exception {
-		mockMvc.perform(post("/api/urls").header("X-API-Key", "wrong-key")
+	void rejectsWrongApiKeyWithGenericMessage() throws Exception {
+		String body = mockMvc.perform(post("/api/urls").header("X-API-Key", "wrong-key")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"url\":\"https://example.com\"}"))
-				.andExpect(status().isUnauthorized());
+				.andExpect(status().isUnauthorized()).andReturn().getResponse().getContentAsString();
+		org.junit.jupiter.api.Assertions.assertTrue(body.contains("Unauthorized"));
+		org.junit.jupiter.api.Assertions.assertFalse(body.toLowerCase().contains("agentic_api_key"));
 	}
 
 	@Test

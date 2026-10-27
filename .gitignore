@@ -34,6 +34,7 @@ build/
 
 ### App ###
 /data/
+/data/agent-workspace/
 *.bundle
 target/
 application-local.properties

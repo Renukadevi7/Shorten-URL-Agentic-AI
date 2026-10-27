@@ -63,9 +63,10 @@ public class OrchestratorService {
 		scenarioFactory.materialize(run);
 		run.context().put("requirementFingerprint", fingerprint(requirement));
 		if (faultType != null && !faultType.isBlank()) {
-			run.context().put("faultInjection", faultType);
-			run.context().put("faultOnce", faultOnce);
-			auditLog.record(run, null, "FAULT_INJECTION", "Pre-seeded fault " + faultType, Map.of("once", faultOnce));
+			// Legacy string forms still accepted by mapping to stageId+kind.
+			FaultSpec spec = mapLegacyFault(faultType, faultOnce);
+			run.context().put("faultInjection", spec.asMap());
+			auditLog.record(run, null, "FAULT_INJECTION", "Pre-seeded fault", spec.asMap());
 		}
 		auditLog.record(run, null, "POLICY_EVAL", "Requirement policy allow/block decisions",
 				policyGuardrail.auditBundle(policyDecisions));
@@ -143,11 +144,32 @@ public class OrchestratorService {
 	}
 
 	public OrchestrationRun injectFault(String id, String faultType, boolean once) {
+		return injectFault(id, mapLegacyFault(faultType, once));
+	}
+
+	public OrchestrationRun injectFault(String id, FaultSpec fault) {
 		OrchestrationRun run = require(id);
-		run.context().put("faultInjection", faultType);
-		run.context().put("faultOnce", once);
-		auditLog.record(run, null, "FAULT_INJECTION", "Injected fault " + faultType, Map.of("once", once));
+		run.context().put("faultInjection", fault.asMap());
+		auditLog.record(run, null, "FAULT_INJECTION", "Injected fault", fault.asMap());
 		return run;
+	}
+
+	/** Map legacy type names onto generic stageId+kind faults. */
+	private static FaultSpec mapLegacyFault(String faultType, boolean once) {
+		return switch (faultType) {
+			case "FAIL_TESTING" -> FaultSpec.fail("test", once);
+			case "FAIL_ALL_TESTING" -> new FaultSpec("test,test_fallback", "FAIL", once);
+			case "FAIL_AFTER_IMPL_SNAPSHOT", "FAIL_IMPLEMENTATION", "FAIL_AFTER_SNAPSHOT" ->
+					new FaultSpec("impl", "FAIL_AFTER_SNAPSHOT", once);
+			default -> {
+				// Prefer "stageId:KIND" or plain stage id with FAIL.
+				if (faultType.contains(":")) {
+					String[] parts = faultType.split(":", 2);
+					yield new FaultSpec(parts[0], parts[1], once);
+				}
+				yield FaultSpec.fail(faultType, once);
+			}
+		};
 	}
 
 	public OrchestrationRun mutateUpstream(String id, String newRequirement) {
@@ -413,50 +435,67 @@ public class OrchestratorService {
 
 	private void dynamicReplan(OrchestrationRun run) {
 		String reason = String.valueOf(run.context().getOrDefault("replanReason", "Upstream changed"));
-		String replanId = "replan_" + run.stages().size();
-		String anchor = run.stageOrder().stream()
+		String changedKey = "requirementFingerprint";
+		String producerId = run.stageOrder().stream()
 				.filter(id -> {
 					StageNode n = run.stages().get(id);
-					return n != null && n.status() == StageStatus.SUCCEEDED;
+					return n != null && n.producesContext().contains(changedKey);
 				})
-				.reduce((a, b) -> b)
+				.findFirst()
 				.orElseGet(() -> run.stageOrder().isEmpty() ? "unknown" : run.stageOrder().get(0));
 
+		String replanId = "replan_" + run.stages().size();
 		StageNode replan = StageNode.builder(replanId, StageType.REPLAN, "Dynamic re-plan after upstream change")
-				.dependsOn(anchor)
+				.dependsOn(producerId)
 				.exitArtifacts("replanReason", "clarifiedRequirement")
+				.produces("requirementFingerprint", "normalizedProblem")
 				.build();
 		run.addStage(replan);
 		replan.setStatus(StageStatus.READY);
 
+		List<String> invalidated = new ArrayList<>();
 		for (String id : run.stageOrder()) {
 			StageNode node = run.stages().get(id);
-			if (node.status() == StageStatus.SUCCEEDED || node.id().equals(replanId)) {
+			if (node.id().equals(replanId) || node.id().equals(producerId)) {
 				continue;
 			}
-			if (dependsTransitivelyOn(run, node, anchor) && !node.activationOnly()) {
+			boolean consumesChanged = node.consumesContext().contains(changedKey);
+			boolean dependsOnProducer = dependsTransitivelyOn(run, node, producerId);
+			if ((consumesChanged || dependsOnProducer) && !node.activationOnly()) {
 				node.setStatus(StageStatus.BLOCKED);
 				node.resetAttempts();
+				invalidated.add(node.id());
+				for (String key : node.producesContext()) {
+					run.context().remove(key);
+				}
+				for (String key : node.requiredExitContext()) {
+					run.context().remove(key);
+				}
+				auditLog.record(run, node.id(), "REPLAN_INVALIDATE",
+						"Re-planning: consumed upstream output changed (" + changedKey + ")",
+						Map.of("producer", producerId, "changedKey", changedKey));
 			}
 		}
-		run.context().put("architectureReady", false);
-		run.context().put("securityReviewPassed", false);
-		run.context().put("implementationDone", false);
-		run.context().put("testsPassed", false);
-		run.context().put("docsReady", false);
 		run.context().remove("replanApplied");
 		run.context().keySet().removeIf(k -> k.startsWith("entryBlocked_"));
 
-		// Rewire first architecture-typed stage onto the replan node (metadata-driven, not id hard-code).
-		run.stages().values().stream()
-				.filter(n -> n.type() == StageType.ARCHITECTURE)
-				.findFirst()
-				.ifPresent(arch -> run.stages().put(arch.id(), arch.withDependsOn(List.of(replanId))));
+		// Rewire direct dependents of the producer onto the replan node.
+		for (String id : List.copyOf(run.stageOrder())) {
+			StageNode node = run.stages().get(id);
+			if (node.dependsOn().contains(producerId) && !node.id().equals(replanId)) {
+				List<String> deps = new ArrayList<>(node.dependsOn());
+				deps.remove(producerId);
+				if (!deps.contains(replanId)) {
+					deps.add(0, replanId);
+				}
+				run.stages().put(node.id(), node.withDependsOn(deps));
+			}
+		}
 
 		run.context().put("replanScheduled", true);
 		auditLog.record(run, replanId, "DYNAMIC_REPLAN",
-				"Inserted REPLAN stage and invalidated downstream after upstream change",
-				Map.of("reason", reason, "anchor", anchor));
+				"Inserted REPLAN and invalidated consumers of changed inputs",
+				Map.of("reason", reason, "changedKey", changedKey, "producer", producerId, "invalidated", invalidated));
 	}
 
 	private boolean dependsTransitivelyOn(OrchestrationRun run, StageNode node, String anchor) {

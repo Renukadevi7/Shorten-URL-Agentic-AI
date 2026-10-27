@@ -14,15 +14,14 @@ public class StageNode {
 	private final boolean requiresHumanApproval;
 	private final int maxRetries;
 	private final String fallbackStageId;
-	/** When true, stage stays out of ready-set until explicitly activated (e.g. fallback). */
 	private final boolean activationOnly;
-	/** Context keys that must be true/present before entry. */
 	private final List<String> requiredEntryContext;
-	/** Context keys that must be true after exit. */
 	private final List<String> requiredExitContext;
-	/** Artifact keys that must exist after exit. */
 	private final List<String> requiredExitArtifacts;
-	/** Approving this stage completes the run (after policy checks). */
+	/** Context keys this stage produces (used by generic replan invalidation). */
+	private final List<String> producesContext;
+	/** Context keys this stage consumes from upstream. */
+	private final List<String> consumesContext;
 	private final boolean completesRun;
 	private StageStatus status = StageStatus.BLOCKED;
 	private int attempts;
@@ -31,7 +30,8 @@ public class StageNode {
 
 	public StageNode(String id, StageType type, String title, List<String> dependsOn, boolean requiresHumanApproval,
 			int maxRetries, String fallbackStageId, boolean activationOnly, List<String> requiredEntryContext,
-			List<String> requiredExitContext, List<String> requiredExitArtifacts, boolean completesRun) {
+			List<String> requiredExitContext, List<String> requiredExitArtifacts, List<String> producesContext,
+			List<String> consumesContext, boolean completesRun) {
 		this.id = id;
 		this.type = type;
 		this.title = title;
@@ -43,6 +43,8 @@ public class StageNode {
 		this.requiredEntryContext = List.copyOf(requiredEntryContext);
 		this.requiredExitContext = List.copyOf(requiredExitContext);
 		this.requiredExitArtifacts = List.copyOf(requiredExitArtifacts);
+		this.producesContext = List.copyOf(producesContext);
+		this.consumesContext = List.copyOf(consumesContext);
 		this.completesRun = completesRun;
 	}
 
@@ -88,6 +90,14 @@ public class StageNode {
 
 	public List<String> requiredExitArtifacts() {
 		return requiredExitArtifacts;
+	}
+
+	public List<String> producesContext() {
+		return producesContext;
+	}
+
+	public List<String> consumesContext() {
+		return consumesContext;
 	}
 
 	public boolean completesRun() {
@@ -139,6 +149,8 @@ public class StageNode {
 		map.put("requiredEntryContext", requiredEntryContext);
 		map.put("requiredExitContext", requiredExitContext);
 		map.put("requiredExitArtifacts", requiredExitArtifacts);
+		map.put("producesContext", producesContext);
+		map.put("consumesContext", consumesContext);
 		map.put("maxRetries", maxRetries);
 		map.put("status", status.name());
 		map.put("attempts", attempts);
@@ -149,7 +161,8 @@ public class StageNode {
 
 	public StageNode withDependsOn(List<String> deps) {
 		StageNode copy = new StageNode(id, type, title, deps, requiresHumanApproval, maxRetries, fallbackStageId,
-				activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, completesRun);
+				activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, producesContext,
+				consumesContext, completesRun);
 		copy.status = this.status;
 		copy.attempts = this.attempts;
 		copy.output = this.output;
@@ -173,6 +186,8 @@ public class StageNode {
 		private List<String> requiredEntryContext = List.of();
 		private List<String> requiredExitContext = List.of();
 		private List<String> requiredExitArtifacts = List.of();
+		private List<String> producesContext = List.of();
+		private List<String> consumesContext = List.of();
 		private boolean completesRun;
 
 		private Builder(String id, StageType type, String title) {
@@ -213,11 +228,24 @@ public class StageNode {
 
 		public Builder exitContext(String... keys) {
 			this.requiredExitContext = List.of(keys);
+			if (this.producesContext.isEmpty()) {
+				this.producesContext = List.of(keys);
+			}
 			return this;
 		}
 
 		public Builder exitArtifacts(String... keys) {
 			this.requiredExitArtifacts = List.of(keys);
+			return this;
+		}
+
+		public Builder produces(String... keys) {
+			this.producesContext = List.of(keys);
+			return this;
+		}
+
+		public Builder consumes(String... keys) {
+			this.consumesContext = List.of(keys);
 			return this;
 		}
 
@@ -227,8 +255,10 @@ public class StageNode {
 		}
 
 		public StageNode build() {
+			List<String> produces = producesContext.isEmpty() ? requiredExitContext : producesContext;
 			return new StageNode(id, type, title, dependsOn, requiresHumanApproval, maxRetries, fallbackStageId,
-					activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, completesRun);
+					activationOnly, requiredEntryContext, requiredExitContext, requiredExitArtifacts, produces,
+					consumesContext, completesRun);
 		}
 	}
 }

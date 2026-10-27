@@ -6,24 +6,29 @@
       "type": "REQUIREMENTS",
       "title": "Normalize greenfield requirement",
       "dependsOn": [],
-      "exitArtifacts": ["problemStatement", "impactAnalysis"]
+      "exitArtifacts": ["problemStatement", "impactAnalysis"],
+      "produces": ["requirementFingerprint", "normalizedProblem"]
     },
     {
       "id": "arch",
       "type": "ARCHITECTURE",
       "title": "Draft architecture",
       "dependsOn": ["req"],
+      "consumes": ["requirementFingerprint", "normalizedProblem"],
       "exitContext": ["architectureReady"],
-      "exitArtifacts": ["architecture"]
+      "exitArtifacts": ["architecture"],
+      "produces": ["architectureReady"]
     },
     {
       "id": "sec",
       "type": "SECURITY_REVIEW",
       "title": "Security & change-control review",
       "dependsOn": ["arch"],
+      "consumes": ["architectureReady"],
       "entryContext": ["architectureReady"],
       "exitContext": ["securityReviewPassed"],
-      "exitArtifacts": ["securityFindings"]
+      "exitArtifacts": ["securityFindings"],
+      "produces": ["securityReviewPassed"]
     },
     {
       "id": "impl",
@@ -31,9 +36,11 @@
       "title": "Implement create+redirect+reliability APIs",
       "dependsOn": ["sec"],
       "requiresHumanApproval": true,
+      "consumes": ["architectureReady", "securityReviewPassed"],
       "entryContext": ["architectureReady", "securityReviewPassed"],
       "exitContext": ["implementationDone"],
-      "exitArtifacts": ["changeArtifact", "agentValidation"]
+      "exitArtifacts": ["changeArtifact", "agentValidation"],
+      "produces": ["implementationDone"]
     },
     {
       "id": "test",
@@ -41,8 +48,10 @@
       "title": "Validate APIs (primary)",
       "dependsOn": ["impl"],
       "fallbackStageId": "test_fallback",
+      "consumes": ["implementationDone"],
       "exitContext": ["testsPassed"],
-      "exitArtifacts": ["testReport", "passed"]
+      "exitArtifacts": ["testReport", "passed"],
+      "produces": ["testsPassed"]
     },
     {
       "id": "test_fallback",
@@ -50,16 +59,20 @@
       "title": "Fallback reduced test pack",
       "dependsOn": ["impl"],
       "activationOnly": true,
+      "consumes": ["implementationDone"],
       "exitContext": ["testsPassed"],
-      "exitArtifacts": ["testReport", "passed"]
+      "exitArtifacts": ["testReport", "passed"],
+      "produces": ["testsPassed"]
     },
     {
       "id": "docs",
       "type": "DOCUMENTATION",
       "title": "Generate API docs",
       "dependsOn": ["impl"],
+      "consumes": ["implementationDone"],
       "exitContext": ["docsReady"],
-      "exitArtifacts": ["documentation"]
+      "exitArtifacts": ["documentation"],
+      "produces": ["docsReady"]
     },
     {
       "id": "release",
@@ -68,6 +81,7 @@
       "dependsOn": ["test", "docs"],
       "requiresHumanApproval": true,
       "completesRun": true,
+      "consumes": ["testsPassed", "docsReady"],
       "entryContext": ["testsPassed", "docsReady"],
       "exitArtifacts": ["releaseChecklist"]
     }

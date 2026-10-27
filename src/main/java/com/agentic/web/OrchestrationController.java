@@ -85,8 +85,14 @@ public class OrchestrationController {
 	@PostMapping("/runs/{id}/fault")
 	public Map<String, Object> fault(@PathVariable String id, @RequestBody FaultRequest body) {
 		try {
-			String type = body == null || body.type() == null ? "FAIL_TESTING" : body.type();
 			boolean once = body == null || body.once() == null || body.once();
+			if (body != null && body.stageId() != null && !body.stageId().isBlank()) {
+				String kind = body.kind() == null || body.kind().isBlank() ? "FAIL" : body.kind();
+				return orchestratorService
+						.injectFault(id, new com.agentic.orchestration.FaultSpec(body.stageId(), kind, once))
+						.toView();
+			}
+			String type = body == null || body.type() == null ? "test:FAIL" : body.type();
 			return orchestratorService.injectFault(id, type, once).toView();
 		}
 		catch (RuntimeException ex) {
@@ -121,7 +127,7 @@ public class OrchestrationController {
 	public record ReasonRequest(String reason) {
 	}
 
-	public record FaultRequest(String type, Boolean once) {
+	public record FaultRequest(String type, String stageId, String kind, Boolean once) {
 	}
 
 	public record MutateRequest(String requirement) {

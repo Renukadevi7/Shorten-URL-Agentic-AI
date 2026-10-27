@@ -44,7 +44,7 @@ public class StageExecutor {
 	}
 
 	public void execute(OrchestrationRun run, StageNode stage) {
-		maybeInjectFault(run, stage);
+		maybeInjectFault(run, stage, false);
 		StageHandler handler = handlers.get(stage.type());
 		if (handler == null) {
 			throw new IllegalStateException("No handler registered for stage type " + stage.type());
@@ -53,27 +53,32 @@ public class StageExecutor {
 		carryDecision(run, stage);
 	}
 
-	private void maybeInjectFault(OrchestrationRun run, StageNode stage) {
-		Object fault = run.context().get("faultInjection");
-		if (!(fault instanceof String faultType) || faultType.isBlank()) {
+	/**
+	 * Generic fault injection: matches {@link FaultSpec#stageId()} to the executing stage id.
+	 * kind=FAIL fires before the handler; kind=FAIL_AFTER_SNAPSHOT fires after impl snapshot.
+	 */
+	private void maybeInjectFault(OrchestrationRun run, StageNode stage, boolean afterSnapshotOnly) {
+		FaultSpec fault = FaultSpec.fromContext(run.context().get("faultInjection"));
+		if (fault == null || fault.stageId() == null || fault.stageId().isBlank()) {
 			return;
 		}
-		boolean once = !Boolean.FALSE.equals(run.context().get("faultOnce"));
-		if ("FAIL_TESTING".equals(faultType) && stage.type() == StageType.TESTING) {
-			if (once) {
-				run.context().remove("faultInjection");
-			}
-			throw new IllegalStateException("Fault injection: FAIL_TESTING");
+		boolean matches = java.util.Arrays.stream(fault.stageId().split(","))
+				.map(String::trim)
+				.anyMatch(id -> id.equals(stage.id()));
+		if (!matches) {
+			return;
 		}
-		if ("FAIL_ALL_TESTING".equals(faultType)
-				&& (stage.type() == StageType.TESTING || stage.type() == StageType.TESTING_FALLBACK)) {
-			if (once) {
-				run.context().remove("faultInjection");
-			}
-			throw new IllegalStateException("Fault injection: FAIL_ALL_TESTING");
+		boolean afterSnapshotKind = "FAIL_AFTER_SNAPSHOT".equalsIgnoreCase(fault.kind());
+		if (afterSnapshotKind != afterSnapshotOnly) {
+			return;
 		}
-		// FAIL_IMPLEMENTATION / FAIL_AFTER_IMPL_SNAPSHOT are handled inside implementation()
-		// after the pre-change snapshot is captured, so rollback can restore product state.
+		if (!afterSnapshotKind && !"FAIL".equalsIgnoreCase(fault.kind())) {
+			return;
+		}
+		if (fault.once()) {
+			run.context().remove("faultInjection");
+		}
+		throw new IllegalStateException("Fault injection: kind=" + fault.kind() + " stageId=" + fault.stageId());
 	}
 
 	private void requirements(OrchestrationRun run, StageNode stage) {
@@ -96,6 +101,7 @@ public class StageExecutor {
 			impact.put("modules", List.of("UrlShortenerService", "UrlController", "ApiKeyAuthFilter", "RateLimitFilter"));
 		}
 		run.setNormalizedProblem(normalized);
+		run.context().put("normalizedProblem", normalized);
 		run.context().put("requirementVersion", run.context().getOrDefault("requirementVersion", 1));
 		stage.setOutput(normalized);
 		stage.artifacts().put("problemStatement", normalized);
@@ -182,8 +188,8 @@ public class StageExecutor {
 		changeAgent.apply(run, artifact);
 		run.audit(stage.id(), "AGENT_APPLY", "Applied change " + artifact.changeId(),
 				Map.of("changeId", artifact.changeId(), "filesTouched", artifact.filesTouched()));
-		// Snapshot is now captured — faults here exercise true product rollback.
-		injectPostSnapshotImplFault(run);
+		// Snapshot is now captured — stage-id faults with FAIL_AFTER_SNAPSHOT exercise rollback.
+		maybeInjectFault(run, stage, true);
 		changeAgent.validate(run, artifact);
 		run.audit(stage.id(), "AGENT_VALIDATE", "Validated change " + artifact.changeId(), artifact.validationPlan());
 
@@ -193,21 +199,6 @@ public class StageExecutor {
 		stage.setOutput("ChangeAgent produced/applied/validated change " + artifact.changeId());
 		run.context().put("implementationDone", true);
 		run.audit(stage.id(), "IMPLEMENT", stage.output(), new LinkedHashMap<>(stage.artifacts()));
-	}
-
-	private void injectPostSnapshotImplFault(OrchestrationRun run) {
-		Object fault = run.context().get("faultInjection");
-		if (!(fault instanceof String faultType)) {
-			return;
-		}
-		if (!"FAIL_IMPLEMENTATION".equals(faultType) && !"FAIL_AFTER_IMPL_SNAPSHOT".equals(faultType)) {
-			return;
-		}
-		boolean once = !Boolean.FALSE.equals(run.context().get("faultOnce"));
-		if (once) {
-			run.context().remove("faultInjection");
-		}
-		throw new IllegalStateException("Fault injection: " + faultType + " after pre-change snapshot");
 	}
 
 	private void testing(OrchestrationRun run, StageNode stage, boolean fallback) {

@@ -113,7 +113,7 @@ function renderRun(run) {
   bind("stop", async () =>
     post(`/api/orchestration/runs/${currentRunId}/safe-stop`, { reason: "Operator safe-stop" }));
   bind("fault", async () =>
-    post(`/api/orchestration/runs/${currentRunId}/fault`, { type: "FAIL_TESTING", once: false }));
+    post(`/api/orchestration/runs/${currentRunId}/fault`, { stageId: "test", kind: "FAIL", once: false }));
   bind("replan", async () =>
     post(`/api/orchestration/runs/${currentRunId}/mutate-upstream`, {
       requirement: "Updated upstream: ship HTTPS-only short links with stats for leadership demo.",

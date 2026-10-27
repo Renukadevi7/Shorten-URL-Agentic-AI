@@ -11,8 +11,12 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 
 @Service
 public class UrlShortenerService {
@@ -20,18 +24,20 @@ public class UrlShortenerService {
 	private static final Pattern ALIAS = Pattern.compile("^[a-zA-Z0-9_-]{3,32}$");
 
 	private final ShortUrlRepository repository;
+	private final EntityManager entityManager;
 	private final AtomicBoolean analyticsEnabled = new AtomicBoolean(true);
 	private final AtomicBoolean reliabilityEnabled = new AtomicBoolean(true);
 
-	public UrlShortenerService(ShortUrlRepository repository) {
+	public UrlShortenerService(ShortUrlRepository repository, EntityManager entityManager) {
 		this.repository = repository;
+		this.entityManager = entityManager;
 	}
 
 	@Transactional
 	public ShortUrl shorten(String rawUrl, String customAlias, Long ttlSeconds) {
 		String url = normalize(rawUrl);
 		validate(url);
-		String code = resolveCode(customAlias);
+		String code = allocateCode(customAlias);
 		Instant expiresAt = null;
 		if (ttlSeconds != null) {
 			if (ttlSeconds <= 0) {
@@ -40,7 +46,14 @@ public class UrlShortenerService {
 			expiresAt = Instant.now().plusSeconds(ttlSeconds);
 		}
 		ShortUrlEntity entity = new ShortUrlEntity(code, url, Instant.now(), expiresAt);
-		repository.save(entity);
+		try {
+			// persist() rejects duplicates; save() would merge and overwrite under races.
+			entityManager.persist(entity);
+			entityManager.flush();
+		}
+		catch (DataIntegrityViolationException | PersistenceException ex) {
+			throw new IllegalArgumentException("customAlias already in use");
+		}
 		return entity.toView();
 	}
 
@@ -51,15 +64,13 @@ public class UrlShortenerService {
 			return Optional.empty();
 		}
 		ShortUrlEntity entity = found.get();
-		if (entity.isDeleted()) {
-			return Optional.empty();
-		}
-		if (entity.isExpired(Instant.now())) {
+		if (entity.isDeleted() || entity.isExpired(Instant.now())) {
 			return Optional.empty();
 		}
 		if (analyticsEnabled.get()) {
-			entity.recordClick();
-			repository.save(entity);
+			// Atomic increment avoids lost updates under concurrent redirects.
+			repository.incrementClicksIfActive(code, Instant.now());
+			return repository.findById(code).map(ShortUrlEntity::toView);
 		}
 		return Optional.of(entity.toView());
 	}
@@ -84,7 +95,6 @@ public class UrlShortenerService {
 		return true;
 	}
 
-	/** Force-expire a code so ChangeAgent/tests can validate TTL without sleeping. */
 	@Transactional
 	public boolean forceExpire(String code) {
 		Optional<ShortUrlEntity> found = repository.findById(code);
@@ -174,7 +184,7 @@ public class UrlShortenerService {
 		}
 	}
 
-	private String resolveCode(String customAlias) {
+	private String allocateCode(String customAlias) {
 		if (customAlias == null || customAlias.isBlank()) {
 			return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 		}
@@ -182,9 +192,7 @@ public class UrlShortenerService {
 		if (!ALIAS.matcher(alias).matches()) {
 			throw new IllegalArgumentException("customAlias must be 3-32 chars of [A-Za-z0-9_-]");
 		}
-		if (repository.existsById(alias)) {
-			throw new IllegalArgumentException("customAlias already in use");
-		}
+		// Do not check-then-act; rely on primary-key uniqueness + DataIntegrityViolationException.
 		return alias;
 	}
 

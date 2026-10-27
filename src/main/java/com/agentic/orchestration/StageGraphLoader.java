@@ -11,10 +11,6 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-/**
- * Loads stage DAGs from classpath JSON so new stages can be added via configuration
- * without changing OrchestratorService core execution logic.
- */
 @Component
 public class StageGraphLoader {
 
@@ -45,7 +41,6 @@ public class StageGraphLoader {
 		}
 	}
 
-	@SuppressWarnings("unchecked")
 	private StageNode toNode(Map<String, Object> raw) {
 		String id = String.valueOf(raw.get("id"));
 		StageType type = StageType.valueOf(String.valueOf(raw.get("type")));
@@ -73,6 +68,12 @@ public class StageGraphLoader {
 		}
 		if (raw.get("exitArtifacts") instanceof List<?> list) {
 			b.exitArtifacts(list.stream().map(String::valueOf).toArray(String[]::new));
+		}
+		if (raw.get("produces") instanceof List<?> list) {
+			b.produces(list.stream().map(String::valueOf).toArray(String[]::new));
+		}
+		if (raw.get("consumes") instanceof List<?> list) {
+			b.consumes(list.stream().map(String::valueOf).toArray(String[]::new));
 		}
 		return b.build();
 	}

@@ -2,6 +2,9 @@ package com.agentic.web;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Arrays;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -31,28 +34,31 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 		}
 
 		if (apiKey.isBlank()) {
-			unauthorized(response, "API key not configured. Set AGENTIC_API_KEY (or application-local.properties).");
+			unauthorized(response);
 			return;
 		}
 
 		String provided = request.getHeader("X-API-Key");
-		if (provided == null || provided.isBlank()) {
-			unauthorized(response, "Missing X-API-Key. Paste the same value as AGENTIC_API_KEY used to start the server.");
-			return;
-		}
-		if (!provided.equals(apiKey)) {
-			unauthorized(response,
-					"Invalid X-API-Key. It must exactly match AGENTIC_API_KEY (clear the UI field and reload if a stale key was saved).");
+		if (!constantTimeEquals(provided, apiKey)) {
+			unauthorized(response);
 			return;
 		}
 		filterChain.doFilter(request, response);
 	}
 
-	private static void unauthorized(HttpServletResponse response, String message) throws IOException {
+	static boolean constantTimeEquals(String provided, String expected) {
+		byte[] a = expected.getBytes(StandardCharsets.UTF_8);
+		byte[] b = (provided == null ? "" : provided).getBytes(StandardCharsets.UTF_8);
+		int len = Math.max(a.length, b.length);
+		byte[] aa = Arrays.copyOf(a, len);
+		byte[] bb = Arrays.copyOf(b, len);
+		return MessageDigest.isEqual(aa, bb) && a.length == b.length;
+	}
+
+	private static void unauthorized(HttpServletResponse response) throws IOException {
 		response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-		String body = "{\"error\":\"" + message.replace("\"", "'") + "\"}";
-		response.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+		response.getOutputStream().write("{\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8));
 	}
 
 	private boolean isPublic(String path, String method) {
@@ -63,10 +69,7 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 				|| path.startsWith("/js/"))) {
 			return true;
 		}
-		if ("GET".equalsIgnoreCase(method)
-				&& ("/api/orchestration/metrics".equals(path) || "/api/config".equals(path))) {
-			return true;
-		}
+		// Short-link redirects only (not /api/*). Metrics and config require the API key.
 		return "GET".equalsIgnoreCase(method) && !path.startsWith("/api/") && path.length() > 1
 				&& !path.startsWith("/css") && !path.startsWith("/js");
 	}

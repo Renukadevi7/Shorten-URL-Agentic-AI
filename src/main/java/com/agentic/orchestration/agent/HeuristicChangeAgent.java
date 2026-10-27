@@ -5,8 +5,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.springframework.stereotype.Component;
-
 import com.agentic.orchestration.OrchestrationRun;
 import com.agentic.orchestration.PolicyGuardrail;
 import com.agentic.shortener.ProductSnapshot;
@@ -14,11 +12,8 @@ import com.agentic.shortener.ShortUrl;
 import com.agentic.shortener.UrlShortenerService;
 
 /**
- * Deterministic ChangeAgent that produces a real engineering change artifact:
- * a unified source-code diff and an OpenAPI specification, then applies and validates it.
- * An LLM-backed agent can replace this bean without changing the orchestrator.
+ * Legacy reference implementation. Active bean is {@link ScriptedModelChangeAgent}.
  */
-@Component
 public class HeuristicChangeAgent implements ChangeAgent {
 
 	private final UrlShortenerService shortener;
