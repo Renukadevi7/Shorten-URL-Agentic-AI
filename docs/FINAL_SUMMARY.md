@@ -49,7 +49,3 @@ Build an agentic SDLC control plane where orchestration quality is the different
 - New *capabilities* register one named handler once; new stages of existing handlers (and config-only `markProduces` stages) are JSON-only
 - Gate flags are declared in graph `produces` / `consumes`, not hard-coded in replan/executor
 - Draft policy is static pattern scanning (not a full sandbox / seccomp)
-
-## Confidential PDF history
-
-- Confidential PDFs (`docs/assignment.pdf`, `docs/Hiring_Manager_Walkthrough.pdf`, personal overview PDFs) are removed from the tree and purged from git history via `git filter-repo` (force-push required for remotes).
