@@ -18,9 +18,13 @@ import org.springframework.web.context.WebApplicationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+		"agentic.api-key=test-api-key",
+		"agentic.rate-limit.requests-per-minute=5"
+})
 class ApiIntegrationTest {
 
+	/** Forced via @SpringBootTest so local AGENTIC_API_KEY env cannot override tests. */
 	private static final String KEY = "test-api-key";
 
 	@Autowired
